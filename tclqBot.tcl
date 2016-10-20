@@ -12,10 +12,34 @@ exec tclsh8.6 "$0" "${1+"$@"}"
 # See the file "LICENSE" for information on usage and redistribution of this
 # file.
 
+package require Tcl 8.6
+package require sqlite3
+
 set scriptDir [file dirname [info script]]
 # Add parent directory to auto_path so that Tcl can find the discord package.
 lappend ::auto_path "${scriptDir}/../"
 package require discord
+
+# Open sqlite3 database
+sqlite3 procsDb "${scriptDir}/procs.sqlite3"
+procsDb eval { CREATE TABLE IF NOT EXISTS
+    procs(guildId text, name text, args text, body text)
+}
+
+proc procSave { sandbox guildId name args body } {
+    set validName {^[a-zA-Z0-9_\-]+$}
+    if {![regexp $validName $name]} {
+        return -code error "proc name must match the regex '$validName': $name"
+    }
+    if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
+        procsDb eval {INSERT OR REPLACE INTO procs
+            VALUES($guildId, $name, $args, $body)
+        }
+        return
+    } else {
+        return -code error $res
+    }
+}
 
 # Set ownerId and token variables
 source "${scriptDir}/private.tcl"
@@ -110,6 +134,17 @@ proc guildCreate { sessionNs event data } {
     set guildId [dict get $data id]
     dict set ::guildInterps $guildId [interp create -safe]
     set sandbox [dict get $::guildInterps $guildId]
+
+    # Restore saved procs
+    set savedProcs \
+            [procsDb eval {SELECT * FROM procs WHERE guildId IS $guildId}]
+    foreach {- name args body} $savedProcs {
+        $sandbox eval [list proc $name $args $body]
+    }
+    # Use procSave to save proc by guildId
+    $sandbox hide proc
+    $sandbox alias proc procSave $sandbox $guildId
+
     $sandbox alias self getSession self
     $sandbox alias guilds getSession guilds
     $sandbox alias users getSession users
@@ -157,3 +192,4 @@ if {[catch {discord disconnect $session} res]} {
     puts stderr $res
 }
 close $debugLog
+procsDb close
