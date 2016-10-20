@@ -13,8 +13,8 @@ exec tclsh8.6 "$0" "${1+"$@"}"
 # file.
 
 set scriptDir [file dirname [info script]]
-# Add current directory to auto_path so that Tcl can find the discord package.
-lappend ::auto_path ${scriptDir}
+# Add parent directory to auto_path so that Tcl can find the discord package.
+lappend ::auto_path "${scriptDir}/../"
 package require discord
 
 # Set ownerId and token variables
@@ -72,10 +72,12 @@ proc handlePlease { sessionNs data text } {
         {^eval `(.*)`$} -
         {^eval (.*)$} {
             set code [lindex $match 1]
-            $::sandbox limit time -seconds [expr {[clock seconds] + 2}]
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+            set sandbox [dict get $::guildInterps $guildId]
+            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             catch {
-                $::sandbox eval [list set data $data]
-                $::sandbox eval [list uplevel #0 $code]
+                $sandbox eval [list set data $data]
+                $sandbox eval [list uplevel #0 $code]
             } res
             if {[string length $res] > 0} {
                 discord sendMessage $::session $channelId $res
@@ -103,7 +105,21 @@ proc messageCreate { sessionNs event data } {
     }
 }
 
+proc guildCreate { sessionNs event data } {
+    # Setup safe interp for "Please eval"
+    set guildId [dict get $data id]
+    dict set ::guildInterps $guildId [interp create -safe]
+    set sandbox [dict get $::guildInterps $guildId]
+    $sandbox alias self getSession self
+    $sandbox alias guilds getSession guilds
+    $sandbox alias users getSession users
+    $sandbox alias dmChannels getSession dmChannels
+    $sandbox alias send discord sendMessage $sessionNs
+    #$sandbox limit command -value 100
+}
+
 proc registerCallbacks { sessionNs } {
+    discord setCallback $sessionNs GUILD_CREATE ::guildCreate
     discord setCallback $sessionNs MESSAGE_CREATE ::messageCreate
 }
 
@@ -111,16 +127,8 @@ proc getSession { varName } {
     return [set ${::session}::${varName}]
 }
 
+set guildInterps [dict create]
 set session [discord connect $token ::registerCallbacks]
-
-# Setup safe interp for "Please eval"
-set sandbox [interp create -safe]
-$sandbox alias self getSession self
-$sandbox alias guilds getSession guilds
-$sandbox alias users getSession users
-$sandbox alias dmChannels getSession dmChannels
-$sandbox alias send discord sendMessage $session
-#$sandbox limit command -value 100
 
 # For console stdin eval
 proc asyncGets {chan {callback ""}} {
