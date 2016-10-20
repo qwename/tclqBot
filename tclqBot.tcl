@@ -13,8 +13,8 @@ exec tclsh8.6 "$0" "${1+"$@"}"
 # file.
 
 set scriptDir [file dirname [info script]]
-# Add parent directory to auto_path so that Tcl can find the discord package.
-lappend ::auto_path "${scriptDir}/../"
+# Add current directory to auto_path so that Tcl can find the discord package.
+lappend ::auto_path ${scriptDir}
 package require discord
 
 # Set ownerId and token variables
