@@ -2,6 +2,16 @@
 # This line and the trailing backslash  is required so that tclsh ignores the next line \
 exec tclsh8.6 "$0" "${1+"$@"}"
 
+# tclqBot.tcl --
+#
+#       This file implements the Tcl code for a Discord bot written with the
+#       discord.tcl library.
+#
+# Copyright (c) 2016, Yixin Zhang
+#
+# See the file "LICENSE" for information on usage and redistribution of this
+# file.
+
 set scriptDir [file dirname [info script]]
 # Add parent directory to auto_path so that Tcl can find the discord package.
 lappend ::auto_path "${scriptDir}/../"
