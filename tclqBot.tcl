@@ -21,19 +21,45 @@ lappend ::auto_path "${scriptDir}/../"
 package require discord
 
 # Open sqlite3 database
-sqlite3 procsDb "${scriptDir}/procs.sqlite3"
-procsDb eval { CREATE TABLE IF NOT EXISTS
-    procs(guildId text, name text, args text, body text)
+sqlite3 infoDb "${scriptDir}/info.sqlite3"
+infoDb eval { CREATE TABLE IF NOT EXISTS
+    procs(guildId text PRIMARY KEY, name text, args text, body text)
+}
+infoDb eval { CREATE TABLE IF NOT EXISTS
+    bot(guildId text PRIMAY KEY, trigger text)
 }
 
+set validName {^[a-zA-Z0-9_:\-]+$}
 proc procSave { sandbox guildId name args body } {
-    set validName {^[a-zA-Z0-9_\-]+$}
-    if {![regexp $validName $name]} {
-        return -code error "proc name must match the regex '$validName': $name"
+    if {![regexp $::validName $name]} {
+        return -code error \
+                "proc name must match the regex '$::validName': $name"
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
-        procsDb eval {INSERT OR REPLACE INTO procs
+        infoDb eval {INSERT OR REPLACE INTO procs
             VALUES($guildId, $name, $args, $body)
+        }
+        return
+    } else {
+        return -code error $res
+    }
+}
+
+proc renameSave { sandbox guildId oldName newName } {
+    # Don't allow renaming of these!
+    if {[regexp {^:*(?:proc|rename)$} $oldName]} {
+        return
+    }
+    if {$newName ne {} && ![regexp $::validName $newName]} {
+        return -code error \
+                "new name must match the regex '$::validName': $newName"
+    }
+    if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
+        if {$newName eq {}} {
+            infoDb eval {DELETE FROM procs WHERE name IS $oldName}
+        } else {
+            infoDb eval {UPDATE procs SET name = $newName WHERE
+                    name IS $oldName}
         }
         return
     } else {
@@ -100,11 +126,27 @@ proc handlePlease { sessionNs data text } {
             set sandbox [dict get $::guildInterps $guildId]
             $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             catch {
-                $sandbox eval [list set data $data]
+                $sandbox eval [list set ::data $data]
                 $sandbox eval [list uplevel #0 $code]
             } res
             if {[string length $res] > 0} {
                 discord sendMessage $::session $channelId $res
+            }
+        }
+        {^([^ ]+)(?: (.*))?$} {
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+            set sandbox [dict get $::guildInterps $guildId]
+            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+            set cmd [lindex $match 1]
+            set args [lindex $match 2]
+            if {[llength [$sandbox eval [list uplevel #0 info proc $cmd]]] > 0} {
+                catch {
+                    $sandbox eval [list set ::data $data]
+                    $sandbox eval [list uplevel #0 $cmd {*}$args]
+                } res
+                if {[string length $res] > 0} {
+                    discord sendMessage $::session $channelId $res
+                }
             }
         }
     }
@@ -124,7 +166,10 @@ proc messageCreate { sessionNs event data } {
         }
     }
     set content [dict get $data content]
-    if {[regexp {^Please (.*)$} $content -> text]} {
+    set channelId [dict get $data channel_id]
+    set guildId [dict get [set ${sessionNs}::channels] $channelId]
+    set botTrigger [dict get $::guildBotTriggers $guildId]
+    if {[regexp $botTrigger $content -> text]} {
         handlePlease $sessionNs $data $text
     }
 }
@@ -135,15 +180,24 @@ proc guildCreate { sessionNs event data } {
     dict set ::guildInterps $guildId [interp create -safe]
     set sandbox [dict get $::guildInterps $guildId]
 
+    # Restore saved bot trigger regex
+    set savedTrigger [infoDb eval {SELECT * FROM bot WHERE guildId is $guildId}]
+    if {$savedTrigger ne {}} {
+        dict set ::guildBotTriggers $guildId $savedTrigger
+    } else {
+        dict set ::guildBotTriggers $guildId $::defaultTrigger
+        infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
+    }
     # Restore saved procs
-    set savedProcs \
-            [procsDb eval {SELECT * FROM procs WHERE guildId IS $guildId}]
+    set savedProcs [infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId}]
     foreach {- name args body} $savedProcs {
         $sandbox eval [list proc $name $args $body]
     }
     # Use procSave to save proc by guildId
     $sandbox hide proc
+    $sandbox hide rename
     $sandbox alias proc procSave $sandbox $guildId
+    $sandbox alias rename renameSave $sandbox $guildId
 
     $sandbox alias self getSession self
     $sandbox alias guilds getSession guilds
@@ -162,6 +216,8 @@ proc getSession { varName } {
     return [set ${::session}::${varName}]
 }
 
+set defaultTrigger {^Please (.*)$}
+set guildBotTriggers [dict create]
 set guildInterps [dict create]
 set session [discord connect $token ::registerCallbacks]
 
@@ -192,4 +248,4 @@ if {[catch {discord disconnect $session} res]} {
     puts stderr $res
 }
 close $debugLog
-procsDb close
+infoDb close
