@@ -4,4 +4,5 @@ Discord bot written in Tcl with
 
 ### Status
 
-- Safe interpreter to *eval* scripts.
+- Safe interpreter for every guild ID to *eval* scripts.
+- Save procs from each guild ID in a local sqlite3 database.
