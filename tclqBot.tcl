@@ -31,6 +31,10 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 
 set validName {^[a-zA-Z0-9_:\-]+$}
 proc procSave { sandbox guildId name args body } {
+    # Don't allow redefining these procs!
+    if {[regexp {^:*(?:proc|rename)$} $name]} {
+        return
+    }
     if {![regexp $::validName $name]} {
         return -code error \
                 "proc name must match the regex '$::validName': $name"
