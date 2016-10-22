@@ -35,9 +35,11 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 }
 infoDb eval {CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId)}
 
+# Don't allow proc or rename on these procs!
+set protectedCommands [info commands]
+set protectedRegex "^:*(?:[join $protectedCommands |])$"
 proc procSave { sandbox guildId name args body } {
-    # Don't allow redefining these procs!
-    if {[regexp {^:*(?:proc|rename)$} $name]} {
+    if {[regexp $::protectedRegex $name]} {
         return
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
@@ -52,7 +54,7 @@ proc procSave { sandbox guildId name args body } {
 
 proc renameSave { sandbox guildId oldName newName } {
     # Don't allow renaming of these!
-    if {[regexp {^:*(?:proc|rename)$} $oldName]} {
+    if {[regexp $::protectedRegex $oldName]} {
         return
     }
     if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
