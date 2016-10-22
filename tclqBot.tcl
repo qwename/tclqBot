@@ -68,13 +68,6 @@ proc renameSave { sandbox guildId oldName newName } {
     }
 }
 
-# Set ownerId and token variables
-source "${scriptDir}/private.tcl"
-
-# Ad-hoc log file size limiting follows
-set debugFile "${scriptDir}/debug"
-set debugLog {}
-set maxSize [expr {4 * 1024**2}]
 proc logDebug { text } {
     variable debugFile
     variable debugLog
@@ -106,16 +99,6 @@ proc logDebug { text } {
     flush $debugLog
 }
 
-if {[catch {open $debugFile "a"} debugLog]} {
-    puts stderr $debugLog
-} else {
-    ${discord::log}::logproc debug ::logDebug
-}
-
-# Set to 0 for a cleaner debug log.
-discord::gateway logWsMsg 1
-${discord::log}::setlevel debug
-
 # Lambda for "unique" number
 coroutine id apply { { } {
     set x 0
@@ -145,17 +128,58 @@ proc handlePlease { sessionNs data text } {
     variable log
     set channelId [dict get $data channel_id]
     switch -regexp -matchvar match -- $text {
+        {^help$} {
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+            set trigger [dict get $::guildBotTriggers $guildId]
+            set helpMsg "
+**tclqBot**, made with discord.tcl $discord::version.
+Current trigger: `$trigger`
+Default Commands (if {\$trigger eq `{$::defaultTrigger}`})
+**Please help**
+    Display this message.
+
+**Please change_trigger** *?pattern?*
+    Changes the regex expression for matching message content to *pattern*. If
+    no *pattern* is specified, this outputs the current regex to the channel.
+    Only the string in the first capture group, if any, will be parsed.
+
+**Please eval** *script*
+    Evaluates *script* in Tcl's safe interpreter.
+
+**Please** *command ?arg ...?*
+    If *command* is a proc in the safe interpreter, it will be called with the
+    *arg* arguments, if any.
+"
+            discord sendMessage $sessionNs $channelId $helpMsg
+        }
+        {^change_trigger(?: ```(.*)```)?$} -
+        {^change_trigger(?: `(.*)`)?$} {
+            set pattern [lindex $match 1]
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+            set msg ""
+            if {$pattern ne {}} {
+                dict set ::guildBotTriggers $guildId $pattern
+                infoDb eval {INSERT OR REPLACE INTO bot
+                        VALUES($guildId, $pattern)
+                }
+                set msg "Trigger changed to ```$pattern```"
+            } else {
+                set trigger [dict get $::guildBotTriggers $guildId]
+                set msg "Current trigger: ```$trigger```"
+            }
+            discord sendMessage $sessionNs $channelId $msg
+        }
         {^eval ```(.*)```$} -
         {^eval `(.*)`$} -
         {^eval (.*)$} {
-            set code [lindex $match 1]
+            set script [lindex $match 1]
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
             $sandbox limit time -seconds {}
             setupSandboxEval $sandbox $sessionNs $data
             $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             catch {
-                $sandbox eval [list uplevel #0 $code]
+                $sandbox eval [list uplevel #0 $script]
             } res
             if {[string length $res] > 0} {
                 ${log}::debug "sandbox eval return: $res"
@@ -174,15 +198,15 @@ proc handlePlease { sessionNs data text } {
         {^([^ ]+)(?: (.*))?$} {
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
-            set cmd [lindex $match 1]
-            # Check if cmd is in sandbox
+            set command [lindex $match 1]
+            # Check if command is in sandbox
             $sandbox limit time -seconds {}
-            if {[llength [$sandbox eval [list info procs $cmd]]] > 0} {
+            if {[llength [$sandbox eval [list info procs $command]]] > 0} {
                 set args [lindex $match 2]
                 setupSandboxEval $sandbox $sessionNs $data
                 $sandbox limit time -seconds [expr {[clock seconds] + 2}]
                 # Only send the result if an error occurred.
-                if {[catch {$sandbox eval [list uplevel #0 $cmd {*}$args]} \
+                if {[catch {$sandbox eval [list uplevel #0 $command {*}$args]} \
                         res] && [string length $res] > 0} {
                     ${log}::debug "sandbox eval return: $res"
                     set resCoro [discord sendMessage $sessionNs $channelId $res]
@@ -218,8 +242,8 @@ proc messageCreate { sessionNs event data } {
     set content [dict get $data content]
     set channelId [dict get $data channel_id]
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
-    set botTrigger [dict get $::guildBotTriggers $guildId]
-    if {[regexp $botTrigger $content -> text]} {
+    set trigger [dict get $::guildBotTriggers $guildId]
+    if {[regexp $trigger $content -> text]} {
         coroutine handlePlease[::id] handlePlease $sessionNs $data $text
     }
 }
@@ -260,11 +284,6 @@ proc registerCallbacks { sessionNs } {
     discord setCallback $sessionNs MESSAGE_CREATE ::messageCreate
 }
 
-set defaultTrigger {^Please (.*)$}
-set guildBotTriggers [dict create]
-set guildInterps [dict create]
-set session [discord connect $token ::registerCallbacks]
-
 # For console stdin eval
 proc asyncGets {chan {callback ""}} {
     if {[gets $chan line] >= 0} {
@@ -281,10 +300,33 @@ proc asyncGets {chan {callback ""}} {
     flush stdout
 }
 
+# Set ownerId and token variables
+source "${scriptDir}/private.tcl"
+
+# Ad-hoc log file size limiting follows
+set debugFile "${scriptDir}/debug"
+set debugLog {}
+set maxSize [expr {4 * 1024**2}]
+
+if {[catch {open $debugFile "a"} debugLog]} {
+    puts stderr $debugLog
+} else {
+    ${discord::log}::logproc debug ::logDebug
+}
+
+# Set to 0 for a cleaner debug log.
+discord::gateway logWsMsg 1
+${discord::log}::setlevel debug
+
 puts -nonewline "% "
 flush stdout
 fconfigure stdin -blocking 0 -buffering line
 fileevent stdin readable [list asyncGets stdin]
+
+set defaultTrigger {^Please (.*)$}
+set guildBotTriggers [dict create]
+set guildInterps [dict create]
+set session [discord connect $token ::registerCallbacks]
 
 vwait forever
 
