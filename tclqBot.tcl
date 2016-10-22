@@ -14,11 +14,15 @@ exec tclsh8.6 "$0" "${1+"$@"}"
 
 package require Tcl 8.6
 package require sqlite3
+package require logger
 
 set scriptDir [file dirname [info script]]
 # Add parent directory to auto_path so that Tcl can find the discord package.
 lappend ::auto_path "${scriptDir}/../"
 package require discord
+
+set log [logger::init tclqBot]
+${log}::setlevel debug
 
 # Open sqlite3 database
 sqlite3 infoDb "${scriptDir}/info.sqlite3"
@@ -41,7 +45,7 @@ proc procSave { sandbox guildId name args body } {
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
         infoDb eval {INSERT OR REPLACE INTO procs
-            VALUES($guildId, $name, $args, $body)
+            VALUES(:$guildId, :$name, :$args, :$body)
         }
         return
     } else {
@@ -60,10 +64,10 @@ proc renameSave { sandbox guildId oldName newName } {
     }
     if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
         if {$newName eq {}} {
-            infoDb eval {DELETE FROM procs WHERE name IS $oldName}
+            infoDb eval {DELETE FROM procs WHERE name IS :$oldName}
         } else {
-            infoDb eval {UPDATE procs SET name = $newName WHERE
-                    name IS $oldName}
+            infoDb eval {UPDATE procs SET name = :$newName WHERE
+                    name IS :$oldName}
         }
         return
     } else {
@@ -119,7 +123,17 @@ if {[catch {open $debugFile "a"} debugLog]} {
 discord::gateway logWsMsg 1
 ${discord::log}::setlevel debug
 
+# Lambda for "unique" number
+coroutine id apply { { } {
+    set x 0
+    while 1 {
+        yield $x
+        incr x
+    }
+}}
+
 proc handlePlease { sessionNs data text } {
+    variable log
     set channelId [dict get $data channel_id]
     switch -regexp -matchvar match -- $text {
         {^eval ```(.*)```$} -
@@ -134,10 +148,20 @@ proc handlePlease { sessionNs data text } {
                 $sandbox eval [list uplevel #0 $code]
             } res
             if {[string length $res] > 0} {
-                discord sendMessage $::session $channelId $res
+                set resCoro [discord sendMessage $::session $channelId $res]
+                yield $resCoro
+                set response [$resCoro]
+                set data [lindex $response 0]
+                if {$data eq {}} {
+                    ${log}::error [lindex $response 1]
+                } else {
+                    set messageId [dict get $data id]
+                    ${log}::debug "handlePlease: Sent message ID: $messageId"
+                }
             }
         }
         {^([^ ]+)(?: (.*))?$} {
+            return
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
             $sandbox limit time -seconds [expr {[clock seconds] + 2}]
@@ -149,7 +173,17 @@ proc handlePlease { sessionNs data text } {
                     $sandbox eval [list uplevel #0 $cmd {*}$args]
                 } res
                 if {[string length $res] > 0} {
-                    discord sendMessage $::session $channelId $res
+                    set resCoro [discord sendMessage $::session $channelId $res]
+                    yield $resCoro
+                    set response [$resCoro]
+                    set data [lindex $response 0]
+                    if {$data eq {}} {
+                        ${log}::error [lindex $response 1]
+                    } else {
+                        set messageId [dict get $data id]
+                        ${log}::debug \
+                                "handlePlease: Sent message ID: $messageId"
+                    }
                 }
             }
         }
@@ -174,7 +208,7 @@ proc messageCreate { sessionNs event data } {
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
     set botTrigger [dict get $::guildBotTriggers $guildId]
     if {[regexp $botTrigger $content -> text]} {
-        handlePlease $sessionNs $data $text
+        coroutine handlePlease[::id] handlePlease $sessionNs $data $text
     }
 }
 
@@ -185,15 +219,17 @@ proc guildCreate { sessionNs event data } {
     set sandbox [dict get $::guildInterps $guildId]
 
     # Restore saved bot trigger regex
-    set savedTrigger [infoDb eval {SELECT * FROM bot WHERE guildId is $guildId}]
+    set savedTrigger [infoDb eval {SELECT trigger FROM bot WHERE
+            guildId IS :$guildId}]
     if {$savedTrigger ne {}} {
         dict set ::guildBotTriggers $guildId $savedTrigger
     } else {
         dict set ::guildBotTriggers $guildId $::defaultTrigger
-        infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
+        infoDb eval {INSERT INTO bot VALUES($guildId, :$::defaultTrigger)}
     }
     # Restore saved procs
-    set savedProcs [infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId}]
+    set savedProcs [infoDb eval {SELECT * FROM procs WHERE
+            guildId IS :$guildId}]
     foreach {- name args body} $savedProcs {
         $sandbox eval [list proc $name $args $body]
     }
@@ -252,4 +288,5 @@ if {[catch {discord disconnect $session} res]} {
     puts stderr $res
 }
 close $debugLog
+${log}::delete
 infoDb close
