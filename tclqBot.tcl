@@ -271,6 +271,9 @@ proc messageCreate { sessionNs event data } {
     }
     set content [dict get $data content]
     set channelId [dict get $data channel_id]
+    if {$channelId in [dict keys [set ${sessionNs}::dmChannels]]} {
+        return
+    }
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
     set trigger [dict get $::guildBotTriggers $guildId]
     if {[regexp $::defaultTrigger $content -> text] \
