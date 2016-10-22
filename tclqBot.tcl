@@ -161,7 +161,6 @@ proc handlePlease { sessionNs data text } {
             }
         }
         {^([^ ]+)(?: (.*))?$} {
-            return
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
             $sandbox limit time -seconds [expr {[clock seconds] + 2}]
