@@ -33,7 +33,7 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 infoDb eval { CREATE TABLE IF NOT EXISTS
     bot(guildId TEXT PRIMARY KEY, trigger BLOB)
 }
-infoDb eval {CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId)}
+infoDb eval { CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId) }
 
 # Don't allow proc or rename on these procs!
 set protectedCommands [info commands]
@@ -141,15 +141,19 @@ proc handlePlease { sessionNs data text } {
     variable log
     set channelId [dict get $data channel_id]
     switch -regexp -matchvar match -- $text {
+        {^pmhelp$} -
         {^help$} {
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
-            set trigger getTrigger $guildId
+            set trigger [getTrigger $guildId]
             set helpMsg "
 **tclqBot**, made with discord.tcl $discord::version.
 Default trigger (always enabled): `$::defaultTrigger`
 Current trigger: `$trigger`
+**% Please pmhelp**
+    DM this message to yourself.
+
 **% Please help**
-    Display this message.
+    Display this message in the current channel.
 
 **% Please change_trigger** *?pattern?*
     Changes the regex expression for matching message content to *pattern*. If
@@ -163,7 +167,21 @@ Current trigger: `$trigger`
     If *command* is a proc in the safe interpreter, it will be called with the
     *arg* arguments, if any.
 "
-            discord sendMessage $sessionNs $channelId $helpMsg
+            set cmd [lindex $match 0]
+            if {$cmd eq "help"} {
+                discord sendMessage $sessionNs $channelId $helpMsg
+            } elseif {$cmd eq "pmhelp"} {
+                set userId [dict get [dict get $data author] id]
+                if {[catch {discord sendDM $sessionNs $userId $helpMsg}]} {
+                    set resCoro [discord createDM $sessionNs $userId 1]
+                    yield
+                    set response [$resCoro]
+                    set data [lindex $response 0]
+                    if {$data ne {} && [dict $data exists recipients]} {
+                        discord createDM $sessionNs $userId $helpMsg
+                    }
+                }
+            }
         }
         {^change_trigger(?: ```(.*)```)?$} -
         {^change_trigger(?: `(.*)`)?$} -
@@ -194,7 +212,7 @@ Current trigger: `$trigger`
             } res
             if {[string length $res] > 0} {
                 ${log}::debug "sandbox eval return: $res"
-                set resCoro [discord sendMessage $sessionNs $channelId $res]
+                set resCoro [discord sendMessage $sessionNs $channelId $res 1]
                 yield $resCoro
                 set response [$resCoro]
                 set data [lindex $response 0]
@@ -220,7 +238,8 @@ Current trigger: `$trigger`
                 if {[catch {$sandbox eval [list uplevel #0 $command $args]} \
                         res] && [string length $res] > 0} {
                     ${log}::debug "sandbox eval return: $res"
-                    set resCoro [discord sendMessage $sessionNs $channelId $res]
+                    set resCoro [discord sendMessage $sessionNs $channelId \
+                            $res 1]
                     yield $resCoro
                     set response [$resCoro]
                     set data [lindex $response 0]
@@ -288,7 +307,9 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias proc procSave $sandbox $guildId
     $sandbox alias rename renameSave $sandbox $guildId
 
-    $sandbox alias send discord sendMessage $sessionNs
+    foreach call [list sendMessage createDM sendDM] {
+        $sandbox alias $call discord $call $sessionNs
+    }
 }
 
 proc registerCallbacks { sessionNs } {
