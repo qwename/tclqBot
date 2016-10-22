@@ -186,7 +186,7 @@ Current trigger: `$trigger`
                 yield $resCoro
                 set response [$resCoro]
                 set data [lindex $response 0]
-                if {$data eq {}} {
+                if {$data eq {} || ![dict exists $data id]} {
                     ${log}::error [lindex $response 1]
                 } else {
                     set messageId [dict get $data id]
