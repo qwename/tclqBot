@@ -125,6 +125,22 @@ coroutine id apply { { } {
     }
 }}
 
+proc setupSandboxEval { sandbox sessionNs data } {
+    set channelId [dict get $data channel_id]
+    set guildId [dict get [set ${sessionNs}::channels] $channelId]
+    set channels [dict get [set ${sessionNs}::guilds] $guildId channels]
+    set channel {}
+    foreach chan $channels {
+        if {[dict get $chan id] eq $channelId} {
+            set channel $chan
+            break
+        }
+    }
+    foreach varName [list data channelId guildId channel] {
+        $sandbox eval [list set ::$varName [set $varName]]
+    }
+}
+
 proc handlePlease { sessionNs data text } {
     variable log
     set channelId [dict get $data channel_id]
@@ -135,13 +151,14 @@ proc handlePlease { sessionNs data text } {
             set code [lindex $match 1]
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
-            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+            setupSandboxEval $sandbox $sessionNs $data
+            ;#$sandbox limit time -seconds [expr {[clock seconds] + 2}]
             catch {
-                $sandbox eval [list set ::data $data]
                 $sandbox eval [list uplevel #0 $code]
             } res
             if {[string length $res] > 0} {
-                set resCoro [discord sendMessage $::session $channelId $res]
+                ${log}::debug "sandbox eval return: $res"
+                set resCoro [discord sendMessage $sessionNs $channelId $res]
                 yield $resCoro
                 set response [$resCoro]
                 set data [lindex $response 0]
@@ -156,17 +173,17 @@ proc handlePlease { sessionNs data text } {
         {^([^ ]+)(?: (.*))?$} {
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
-            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             set cmd [lindex $match 1]
-            set args [lindex $match 2]
-            if {[llength [$sandbox eval [list uplevel #0 info proc $cmd]]] \
-                    > 0} {
-
+            # Check if cmd is in sandbox
+            if {[llength [$sandbox eval [list info procs $cmd]]] > 0} {
+                set args [lindex $match 2]
+                setupSandboxEval $sandbox $sessionNs $data
+                ;#$sandbox limit time -seconds [expr {[clock seconds] + 2}]
                 # Only send the result if an error occurred.
-                if {[catch { $sandbox eval [list set ::data $data]
-                             $sandbox eval [list uplevel #0 $cmd {*}$args]
-                        } res] && [string length $res] > 0} {
-                    set resCoro [discord sendMessage $::session $channelId $res]
+                if {[catch {$sandbox eval [list uplevel #0 $cmd {*}$args]} \
+                        res] && [string length $res] > 0} {
+                    ${log}::debug "sandbox eval return: $res"
+                    set resCoro [discord sendMessage $sessionNs $channelId $res]
                     yield $resCoro
                     set response [$resCoro]
                     set data [lindex $response 0]
@@ -228,27 +245,17 @@ proc guildCreate { sessionNs event data } {
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
         $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
     }
-    # Use procSave to save proc by guildId
     $sandbox hide proc
     $sandbox hide rename
     $sandbox alias proc procSave $sandbox $guildId
     $sandbox alias rename renameSave $sandbox $guildId
 
-    $sandbox alias self getSession self
-    $sandbox alias guilds getSession guilds
-    $sandbox alias users getSession users
-    $sandbox alias dmChannels getSession dmChannels
     $sandbox alias send discord sendMessage $sessionNs
-    #$sandbox limit command -value 100
 }
 
 proc registerCallbacks { sessionNs } {
     discord setCallback $sessionNs GUILD_CREATE ::guildCreate
     discord setCallback $sessionNs MESSAGE_CREATE ::messageCreate
-}
-
-proc getSession { varName } {
-    return [set ${::session}::${varName}]
 }
 
 set defaultTrigger {^Please (.*)$}
