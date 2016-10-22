@@ -45,7 +45,7 @@ proc procSave { sandbox guildId name args body } {
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
         infoDb eval {INSERT OR REPLACE INTO procs
-            VALUES(:$guildId, :$name, :$args, :$body)
+            VALUES($guildId, $name, $args, $body)
         }
         return
     } else {
@@ -64,10 +64,10 @@ proc renameSave { sandbox guildId oldName newName } {
     }
     if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
         if {$newName eq {}} {
-            infoDb eval {DELETE FROM procs WHERE name IS :$oldName}
+            infoDb eval {DELETE FROM procs WHERE name IS $oldName}
         } else {
-            infoDb eval {UPDATE procs SET name = :$newName WHERE
-                    name IS :$oldName}
+            infoDb eval {UPDATE procs SET name = $newName WHERE
+                    name IS $oldName}
         }
         return
     } else {
@@ -166,12 +166,13 @@ proc handlePlease { sessionNs data text } {
             $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             set cmd [lindex $match 1]
             set args [lindex $match 2]
-            if {[llength [$sandbox eval [list uplevel #0 info proc $cmd]]] > 0} {
-                catch {
-                    $sandbox eval [list set ::data $data]
-                    $sandbox eval [list uplevel #0 $cmd {*}$args]
-                } res
-                if {[string length $res] > 0} {
+            if {[llength [$sandbox eval [list uplevel #0 info proc $cmd]]] \
+                    > 0} {
+
+                # Only send the result if an error occurred.
+                if {[catch { $sandbox eval [list set ::data $data]
+                             $sandbox eval [list uplevel #0 $cmd {*}$args]
+                        } res] && [string length $res] > 0} {
                     set resCoro [discord sendMessage $::session $channelId $res]
                     yield $resCoro
                     set response [$resCoro]
@@ -219,16 +220,16 @@ proc guildCreate { sessionNs event data } {
 
     # Restore saved bot trigger regex
     set savedTrigger [infoDb eval {SELECT trigger FROM bot WHERE
-            guildId IS :$guildId}]
+            guildId IS $guildId}]
     if {$savedTrigger ne {}} {
         dict set ::guildBotTriggers $guildId $savedTrigger
     } else {
         dict set ::guildBotTriggers $guildId $::defaultTrigger
-        infoDb eval {INSERT INTO bot VALUES($guildId, :$::defaultTrigger)}
+        infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
     }
     # Restore saved procs
     set savedProcs [infoDb eval {SELECT * FROM procs WHERE
-            guildId IS :$guildId}]
+            guildId IS $guildId}]
     foreach {- name args body} $savedProcs {
         $sandbox eval [list proc $name $args $body]
     }
