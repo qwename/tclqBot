@@ -27,11 +27,13 @@ ${log}::setlevel debug
 # Open sqlite3 database
 sqlite3 infoDb "${scriptDir}/info.sqlite3"
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    procs(guildId TEXT PRIMARY KEY, name BLOB, args BLOB, body BLOB)
+    procs(guildId TEXT, name BLOB, args BLOB, body BLOB,
+            UNIQUE(guildId, name) ON CONFLICT REPLACE)
 }
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    bot(guildId TEXT PRIMAY KEY, trigger BLOB)
+    bot(guildId TEXT PRIMARY KEY, trigger BLOB)
 }
+infoDb eval {CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId)}
 
 proc procSave { sandbox guildId name args body } {
     # Don't allow redefining these procs!
@@ -223,10 +225,8 @@ proc guildCreate { sessionNs event data } {
         infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
     }
     # Restore saved procs
-    set savedProcs [infoDb eval {SELECT * FROM procs WHERE
-            guildId IS $guildId}]
-    foreach {- name args body} $savedProcs {
-        $sandbox eval [list proc $name $args $body]
+    infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
+        $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
     }
     # Use procSave to save proc by guildId
     $sandbox hide proc
