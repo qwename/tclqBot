@@ -8,3 +8,7 @@ Find tclqBot on [Discord](https://discord.gg/rMyNmUq).
 
 - Safe interpreter for every guild ID to *eval* scripts.
 - Save procs from each guild ID in a local sqlite3 database.
+
+### TODO
+
+- Trigger events with proc filters.
