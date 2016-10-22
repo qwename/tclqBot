@@ -124,47 +124,56 @@ proc setupSandboxEval { sandbox sessionNs data } {
     }
 }
 
+proc getTrigger { guildId } {
+    return [dict get $::guildBotTriggers $guildId]
+}
+
+proc setTrigger { guildId pattern } {
+    dict set ::guildBotTriggers $guildId $pattern
+    infoDb eval {INSERT OR REPLACE INTO bot
+            VALUES($guildId, $pattern)
+    }
+}
+
 proc handlePlease { sessionNs data text } {
     variable log
     set channelId [dict get $data channel_id]
     switch -regexp -matchvar match -- $text {
         {^help$} {
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
-            set trigger [dict get $::guildBotTriggers $guildId]
+            set trigger getTrigger $guildId
             set helpMsg "
 **tclqBot**, made with discord.tcl $discord::version.
+Default trigger (always enabled): `$::defaultTrigger`
 Current trigger: `$trigger`
-Default Commands (if {\$trigger eq `{$::defaultTrigger}`})
-**Please help**
+**% Please help**
     Display this message.
 
-**Please change_trigger** *?pattern?*
+**% Please change_trigger** *?pattern?*
     Changes the regex expression for matching message content to *pattern*. If
     no *pattern* is specified, this outputs the current regex to the channel.
     Only the string in the first capture group, if any, will be parsed.
 
-**Please eval** *script*
+**% Please eval** *script*
     Evaluates *script* in Tcl's safe interpreter.
 
-**Please** *command ?arg ...?*
+**% Please** *command ?arg ...?*
     If *command* is a proc in the safe interpreter, it will be called with the
     *arg* arguments, if any.
 "
             discord sendMessage $sessionNs $channelId $helpMsg
         }
         {^change_trigger(?: ```(.*)```)?$} -
-        {^change_trigger(?: `(.*)`)?$} {
+        {^change_trigger(?: `(.*)`)?$} -
+        {^change_trigger(?: (.*))?$} {
             set pattern [lindex $match 1]
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set msg ""
             if {$pattern ne {}} {
-                dict set ::guildBotTriggers $guildId $pattern
-                infoDb eval {INSERT OR REPLACE INTO bot
-                        VALUES($guildId, $pattern)
-                }
+                setTrigger $guildId $pattern
                 set msg "Trigger changed to ```$pattern```"
             } else {
-                set trigger [dict get $::guildBotTriggers $guildId]
+                set trigger [getTrigger $guildId]
                 set msg "Current trigger: ```$trigger```"
             }
             discord sendMessage $sessionNs $channelId $msg
@@ -206,7 +215,7 @@ Default Commands (if {\$trigger eq `{$::defaultTrigger}`})
                 setupSandboxEval $sandbox $sessionNs $data
                 $sandbox limit time -seconds [expr {[clock seconds] + 2}]
                 # Only send the result if an error occurred.
-                if {[catch {$sandbox eval [list uplevel #0 $command {*}$args]} \
+                if {[catch {$sandbox eval [list uplevel #0 $command $args]} \
                         res] && [string length $res] > 0} {
                     ${log}::debug "sandbox eval return: $res"
                     set resCoro [discord sendMessage $sessionNs $channelId $res]
@@ -243,7 +252,8 @@ proc messageCreate { sessionNs event data } {
     set channelId [dict get $data channel_id]
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
     set trigger [dict get $::guildBotTriggers $guildId]
-    if {[regexp $trigger $content -> text]} {
+    if {[regexp $::defaultTrigger $content -> text] \
+            || [regexp $trigger $content -> text]} {
         coroutine handlePlease[::id] handlePlease $sessionNs $data $text
     }
 }
@@ -323,7 +333,7 @@ flush stdout
 fconfigure stdin -blocking 0 -buffering line
 fileevent stdin readable [list asyncGets stdin]
 
-set defaultTrigger {^Please (.*)$}
+set defaultTrigger {^% Please (.*)$}
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
 set session [discord connect $token ::registerCallbacks]
