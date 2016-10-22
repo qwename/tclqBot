@@ -27,21 +27,16 @@ ${log}::setlevel debug
 # Open sqlite3 database
 sqlite3 infoDb "${scriptDir}/info.sqlite3"
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    procs(guildId text PRIMARY KEY, name text, args text, body text)
+    procs(guildId TEXT PRIMARY KEY, name BLOB, args BLOB, body BLOB)
 }
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    bot(guildId text PRIMAY KEY, trigger text)
+    bot(guildId TEXT PRIMAY KEY, trigger BLOB)
 }
 
-set validName {^[a-zA-Z0-9_:\-]+$}
 proc procSave { sandbox guildId name args body } {
     # Don't allow redefining these procs!
     if {[regexp {^:*(?:proc|rename)$} $name]} {
         return
-    }
-    if {![regexp $::validName $name]} {
-        return -code error \
-                "proc name must match the regex '$::validName': $name"
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
         infoDb eval {INSERT OR REPLACE INTO procs
@@ -57,10 +52,6 @@ proc renameSave { sandbox guildId oldName newName } {
     # Don't allow renaming of these!
     if {[regexp {^:*(?:proc|rename)$} $oldName]} {
         return
-    }
-    if {$newName ne {} && ![regexp $::validName $newName]} {
-        return -code error \
-                "new name must match the regex '$::validName': $newName"
     }
     if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
         if {$newName eq {}} {
@@ -219,10 +210,14 @@ proc guildCreate { sessionNs event data } {
     set sandbox [dict get $::guildInterps $guildId]
 
     # Restore saved bot trigger regex
-    set savedTrigger [infoDb eval {SELECT trigger FROM bot WHERE
+    set savedTriggers [infoDb eval {SELECT trigger FROM bot WHERE
             guildId IS $guildId}]
-    if {$savedTrigger ne {}} {
-        dict set ::guildBotTriggers $guildId $savedTrigger
+    set numTriggers [llength $savedTriggers]
+    if {$numTriggers > 0} {
+        if {$numTriggers > 1} {
+            ${log}::error "More than one trigger found for guild $guildId!"
+        }
+        dict set ::guildBotTriggers $guildId [lindex $savedTriggers 0]
     } else {
         dict set ::guildBotTriggers $guildId $::defaultTrigger
         infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
