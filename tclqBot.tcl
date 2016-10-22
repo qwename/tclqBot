@@ -21,6 +21,10 @@ set scriptDir [file dirname [info script]]
 lappend ::auto_path "${scriptDir}/../"
 package require discord
 
+source "${scriptDir}/sandbox_procs.tcl"
+# Set ownerId and token variables
+source "${scriptDir}/private.tcl"
+
 set log [logger::init tclqBot]
 ${log}::setlevel debug
 
@@ -35,40 +39,6 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 }
 infoDb eval { CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId) }
 
-# Don't allow proc or rename on these procs!
-set protectedCommands [info commands]
-set protectedRegex "^:*(?:[join $protectedCommands |])$"
-proc procSave { sandbox guildId name args body } {
-    if {[regexp $::protectedRegex $name]} {
-        return
-    }
-    if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
-        infoDb eval {INSERT OR REPLACE INTO procs
-            VALUES($guildId, $name, $args, $body)
-        }
-        return
-    } else {
-        return -code error $res
-    }
-}
-
-proc renameSave { sandbox guildId oldName newName } {
-    # Don't allow renaming of these!
-    if {[regexp $::protectedRegex $oldName]} {
-        return
-    }
-    if {![catch {$sandbox invokehidden -global rename $oldName $newName} res]} {
-        if {$newName eq {}} {
-            infoDb eval {DELETE FROM procs WHERE name IS $oldName}
-        } else {
-            infoDb eval {UPDATE procs SET name = $newName WHERE
-                    name IS $oldName}
-        }
-        return
-    } else {
-        return -code error $res
-    }
-}
 
 proc logDebug { text } {
     variable debugFile
@@ -301,18 +271,21 @@ proc guildCreate { sessionNs event data } {
         dict set ::guildBotTriggers $guildId $::defaultTrigger
         infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
     }
-    # Restore saved procs
-    infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
-        $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
-    }
-    $sandbox hide proc
-    $sandbox hide rename
-    $sandbox alias proc procSave $sandbox $guildId
-    $sandbox alias rename renameSave $sandbox $guildId
 
     foreach call [list sendMessage createDM sendDM] {
         $sandbox alias $call discord $call $sessionNs
     }
+    set protectCmds [$sandbox eval info commands]
+    # Restore saved procs
+    infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
+        $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
+    }
+    foreach cmd [list proc rename after] {
+        $sandbox hide $cmd
+    }
+    $sandbox alias proc procSave $sandbox $guildId $protectCmds
+    $sandbox alias rename renameSave $sandbox $guildId $protectCmds
+
 }
 
 proc registerCallbacks { sessionNs } {
@@ -335,9 +308,6 @@ proc asyncGets {chan {callback ""}} {
     puts -nonewline "% "
     flush stdout
 }
-
-# Set ownerId and token variables
-source "${scriptDir}/private.tcl"
 
 # Ad-hoc log file size limiting follows
 set debugFile "${scriptDir}/debug"
