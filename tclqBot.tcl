@@ -151,8 +151,9 @@ proc handlePlease { sessionNs data text } {
             set code [lindex $match 1]
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set sandbox [dict get $::guildInterps $guildId]
+            $sandbox limit time -seconds {}
             setupSandboxEval $sandbox $sessionNs $data
-            ;#$sandbox limit time -seconds [expr {[clock seconds] + 2}]
+            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
             catch {
                 $sandbox eval [list uplevel #0 $code]
             } res
@@ -175,10 +176,11 @@ proc handlePlease { sessionNs data text } {
             set sandbox [dict get $::guildInterps $guildId]
             set cmd [lindex $match 1]
             # Check if cmd is in sandbox
+            $sandbox limit time -seconds {}
             if {[llength [$sandbox eval [list info procs $cmd]]] > 0} {
                 set args [lindex $match 2]
                 setupSandboxEval $sandbox $sessionNs $data
-                ;#$sandbox limit time -seconds [expr {[clock seconds] + 2}]
+                $sandbox limit time -seconds [expr {[clock seconds] + 2}]
                 # Only send the result if an error occurred.
                 if {[catch {$sandbox eval [list uplevel #0 $cmd {*}$args]} \
                         res] && [string length $res] > 0} {
