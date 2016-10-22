@@ -12,3 +12,5 @@ Find tclqBot on [Discord](https://discord.gg/rMyNmUq).
 ### TODO
 
 - Trigger events with proc filters.
+- Individual safe interps within sandbox interp for each guild.
+- Restrict built-in commands to bot owner and other specified users.
