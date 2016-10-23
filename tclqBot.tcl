@@ -81,18 +81,22 @@ coroutine id apply { { } {
 }}
 
 proc setupSandboxEval { sandbox sessionNs data } {
-    set channelId [dict get $data channel_id]
-    set guildId [dict get [set ${sessionNs}::channels] $channelId]
-    set channels [dict get [set ${sessionNs}::guilds] $guildId channels]
+    set channel_id [dict get $data channel_id]
+    set guild_id [dict get [set ${sessionNs}::channels] $channel_id]
+    set guild [dict get [set ${sessionNs}::guilds] $guild_id]
+    set channels [dict get $guild channels]
     set channel {}
     foreach chan $channels {
-        if {[dict get $chan id] eq $channelId} {
+        if {[dict get $chan id] eq $channel_id} {
             set channel $chan
             break
         }
     }
-    foreach varName [list data channelId guildId channel] {
+    foreach varName [list data channel_id guild_id guild channel] {
         $sandbox eval [list set ::$varName [set $varName]]
+    }
+    foreach varName [list author content] {
+        $sandbox eval [list set ::$varName [dict get $data $varName]]
     }
 }
 
@@ -332,6 +336,8 @@ fileevent stdin readable [list asyncGets stdin]
 set defaultTrigger {^% Please (.*)$}
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
+
+set startTime [clock seconds]
 set session [discord connect $token ::registerCallbacks]
 
 vwait forever
