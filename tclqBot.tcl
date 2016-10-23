@@ -191,7 +191,8 @@ Current trigger: `$trigger`
                 set response [$resCoro]
                 set data [lindex $response 0]
                 if {$data eq {} || ![dict exists $data id]} {
-                    ${log}::error [lindex $response 1]
+                    array set state [lindex $response 1]
+                    ${log}::error "${state(http)}: ${state(body)}"
                 } else {
                     set messageId [dict get $data id]
                     ${log}::debug "handlePlease: Sent message ID: $messageId"
@@ -218,7 +219,8 @@ Current trigger: `$trigger`
                     set response [$resCoro]
                     set data [lindex $response 0]
                     if {$data eq {}} {
-                        ${log}::error [lindex $response 1]
+                        array set state [lindex $response 1]
+                        ${log}::error "${state(http)}: ${state(body)}"
                     } else {
                         set messageId [dict get $data id]
                         ${log}::debug \
