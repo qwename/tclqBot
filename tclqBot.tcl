@@ -100,6 +100,35 @@ proc setupSandboxEval { sandbox sessionNs data } {
     }
 }
 
+proc sandboxEval { sessionNs data command args} {
+    variable log
+    set channelId [dict get $data channel_id]
+    set guildId [dict get [set ${sessionNs}::channels] $channelId]
+    set sandbox [dict get $::guildInterps $guildId]
+    $sandbox limit time -seconds {}
+    # Check if command is in sandbox
+    if {[llength [$sandbox eval [list info commands $command]]] > 0} {
+        setupSandboxEval $sandbox $sessionNs $data
+        $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+        catch {
+            $sandbox eval $command {*}$args
+        } res
+        if {![regexp "^\n*$" $res]} {
+            set resCoro [discord sendMessage $sessionNs $channelId $res 1]
+            yield $resCoro
+            set response [$resCoro]
+            set resData [lindex $response 0]
+            if {$resData eq {} || ![dict exists $resData id]} {
+                array set state [lindex $response 1]
+                ${log}::error "${state(http)}: ${state(body)}"
+            } else {
+                set messageId [dict get $resData id]
+                ${log}::debug "handlePlease: Sent message ID: $messageId"
+            }
+        }
+    }
+}
+
 proc getTrigger { guildId } {
     return [dict get $::guildBotTriggers $guildId]
 }
@@ -134,12 +163,9 @@ Current trigger: `$trigger`
     no *pattern* is specified, this outputs the current regex to the channel.
     Only the string in the first capture group, if any, will be parsed.
 
-**% Please eval** *script*
-    Evaluates *script* in Tcl's safe interpreter.
-
 **% Please** *command ?arg ...?*
-    If *command* is a proc in the safe interpreter, it will be called with the
-    *arg* arguments, if any.
+    If *command* is a command in the safe interpreter, it will be called with
+    the *arg* arguments, if any.
 "
             set cmd [lindex $match 0]
             if {$cmd eq "help"} {
@@ -172,62 +198,17 @@ Current trigger: `$trigger`
             }
             discord sendMessage $sessionNs $channelId $msg
         }
-        {^eval ```(.*)```$} -
-        {^eval `(.*)`$} -
-        {^eval (.*)$} {
-            set script [lindex $match 1]
-            set guildId [dict get [set ${sessionNs}::channels] $channelId]
-            set sandbox [dict get $::guildInterps $guildId]
-            $sandbox limit time -seconds {}
-            setupSandboxEval $sandbox $sessionNs $data
-            $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-            catch {
-                $sandbox eval [list uplevel #0 $script]
-            } res
-            if {[string length $res] > 0} {
-                ${log}::debug "sandbox eval return: $res"
-                set resCoro [discord sendMessage $sessionNs $channelId $res 1]
-                yield $resCoro
-                set response [$resCoro]
-                set data [lindex $response 0]
-                if {$data eq {} || ![dict exists $data id]} {
-                    array set state [lindex $response 1]
-                    ${log}::error "${state(http)}: ${state(body)}"
-                } else {
-                    set messageId [dict get $data id]
-                    ${log}::debug "handlePlease: Sent message ID: $messageId"
-                }
-            }
-        }
+        {^([^ ]+)(?: ```(.*)```)?$} -
+        {^([^ ]+)(?: `(.*)`)?$} -
         {^([^ ]+)(?: (.*))?$} {
-            set guildId [dict get [set ${sessionNs}::channels] $channelId]
-            set sandbox [dict get $::guildInterps $guildId]
-            set command [lindex $match 1]
-            # Check if command is in sandbox
-            $sandbox limit time -seconds {}
-            if {[llength [$sandbox eval [list info procs $command]]] > 0} {
-                set args [lindex $match 2]
-                setupSandboxEval $sandbox $sessionNs $data
-                $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-                # Only send the result if an error occurred.
-                if {[catch {$sandbox eval [list uplevel #0 $command $args]} \
-                        res] && [string length $res] > 0} {
-                    ${log}::debug "sandbox eval return: $res"
-                    set resCoro [discord sendMessage $sessionNs $channelId \
-                            $res 1]
-                    yield $resCoro
-                    set response [$resCoro]
-                    set data [lindex $response 0]
-                    if {$data eq {}} {
-                        array set state [lindex $response 1]
-                        ${log}::error "${state(http)}: ${state(body)}"
-                    } else {
-                        set messageId [dict get $data id]
-                        ${log}::debug \
-                                "handlePlease: Sent message ID: $messageId"
-                    }
-                }
+            lassign $match - command args
+            set script [list $command]
+            if {$args ne {}} {
+                lappend script $args
             }
+            set messageId [dict get $data id]
+            coroutine sandboxEval$messageId sandboxEval $sessionNs $data \
+                   {*}$script
         }
     }
 }
@@ -286,7 +267,7 @@ proc guildCreate { sessionNs event data } {
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
         $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
     }
-    foreach cmd [list proc rename after] {
+    foreach cmd [list proc rename] {
         $sandbox hide $cmd
     }
     $sandbox alias proc procSave $sandbox $guildId $protectCmds
