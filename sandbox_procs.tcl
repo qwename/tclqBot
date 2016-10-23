@@ -12,7 +12,7 @@ proc procSave { sandbox guildId protectCmds name args body } {
     }
 }
 
-proc renameSave { sandbox guildId oldName newName } {
+proc renameSave { sandbox guildId protectCmds oldName newName } {
     if {[regexp "^:*(?:[join $protectCmds |])$" $oldName]} {
         return
     }
