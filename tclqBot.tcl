@@ -100,36 +100,33 @@ proc setupSandboxEval { sandbox sessionNs data } {
     }
 }
 
-proc sandboxEval { sessionNs data command args} {
+proc sandboxEval { sessionNs data script } {
     variable log
     set channelId [dict get $data channel_id]
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
     set sandbox [dict get $::guildInterps $guildId]
     $sandbox limit time -seconds {}
-    # Check if command is in sandbox
-    if {[llength [$sandbox eval [list info commands $command]]] > 0} {
-        setupSandboxEval $sandbox $sessionNs $data
-        $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-        catch {
-            $sandbox eval $command {*}$args
-        } res
-        if {![regexp "^\n*$" $res]} {
-            set resCoro [discord sendMessage $sessionNs $channelId $res 1]
-            if {$resCoro eq {}} {
-                ${log}::warning \
-                        "[info coroutine]: No result coroutine returned."
-                return
-            }
-            yield $resCoro
-            set response [$resCoro]
-            set resData [lindex $response 0]
-            if {$resData eq {} || ![dict exists $resData id]} {
-                array set state [lindex $response 1]
-                ${log}::error "${state(http)}: ${state(body)}"
-            } else {
-                set messageId [dict get $resData id]
-                ${log}::debug "handlePlease: Sent message ID: $messageId"
-            }
+    setupSandboxEval $sandbox $sessionNs $data
+    $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+    catch {
+        $sandbox eval [list uplevel #0 $script]
+    } res
+    if {![regexp "^\n*$" $res]} {
+        set resCoro [discord sendMessage $sessionNs $channelId $res 1]
+        if {$resCoro eq {}} {
+            ${log}::warning \
+                    "[info coroutine]: No result coroutine returned."
+            return
+        }
+        yield $resCoro
+        set response [$resCoro]
+        set resData [lindex $response 0]
+        if {$resData eq {} || ![dict exists $resData id]} {
+            array set state [lindex $response 1]
+            ${log}::error "${state(http)}: ${state(body)}"
+        } else {
+            set messageId [dict get $resData id]
+            ${log}::debug "handlePlease: Sent message ID: $messageId"
         }
     }
 }
@@ -206,17 +203,18 @@ Current trigger: `$trigger`
             }
             discord sendMessage $sessionNs $channelId $msg
         }
+        {^```([^ ]+)(?: (.*))?```$} -
+        {^`([^ ]+)(?: (.*))?`$} -
         {^([^ ]+)(?: ```(.*)```)?$} -
         {^([^ ]+)(?: `(.*)`)?$} -
         {^([^ ]+)(?: (.*))?$} {
             lassign $match - command args
-            set script [list $command]
-            if {$args ne {}} {
-                lappend script $args
+            set script $command
+            if {[llength $args] > 0} {
+                append script " $args"
             }
             set messageId [dict get $data id]
-            coroutine sandboxEval$messageId sandboxEval $sessionNs $data \
-                   {*}$script
+            coroutine sandboxEval$messageId sandboxEval $sessionNs $data $script
         }
     }
 }
