@@ -266,7 +266,8 @@ proc guildCreate { sessionNs event data } {
     }
 
     foreach call [list getChannel modifyChannel deleteChannel getMessages \
-            getMessage sendMessage uploadFile editMessage deleteMessage] {
+            getMessage sendMessage uploadFile editMessage deleteMessage \
+            bulkDeleteMessages] {
         $sandbox alias ${call} apply { { sandbox call sessionNs args } {
                     set coro ::${call}Coro
                     set name ::${call}Result
