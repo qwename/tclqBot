@@ -115,6 +115,11 @@ proc sandboxEval { sessionNs data command args} {
         } res
         if {![regexp "^\n*$" $res]} {
             set resCoro [discord sendMessage $sessionNs $channelId $res 1]
+            if {$resCoro eq {}} {
+                ${log}::warning \
+                        "[info coroutine]: No result coroutine returned."
+                return
+            }
             yield $resCoro
             set response [$resCoro]
             set resData [lindex $response 0]
@@ -174,7 +179,10 @@ Current trigger: `$trigger`
                 set userId [dict get [dict get $data author] id]
                 if {[catch {discord sendDM $sessionNs $userId $helpMsg}]} {
                     set resCoro [discord createDM $sessionNs $userId 1]
-                    yield
+                    if {$resCoro eq {}} {
+                        return
+                    }
+                    yield $resCoro
                     set response [$resCoro]
                     set data [lindex $response 0]
                     if {$data ne {} && [dict $data exists recipients]} {
@@ -259,8 +267,29 @@ proc guildCreate { sessionNs event data } {
         infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
     }
 
-    foreach call [list sendMessage createDM sendDM] {
-        $sandbox alias $call discord $call $sessionNs
+    foreach call [list getChannel modifyChannel deleteChannel getMessages \
+            getMessage sendMessage uploadFile editMessage deleteMessage] {
+        $sandbox alias ${call} apply { { sandbox call sessionNs args } {
+                    set coro ::${call}Coro
+                    set name ::${call}Result
+                    $sandbox eval [list set $name {}]
+                    set resCoro [coroutine $coro apply {
+                            { sandbox varName call sessionNs args } {
+                                set resCoro [discord $call $sessionNs {*}$args]
+                                if {$resCoro eq {}} {
+                                    return
+                                }
+                                yield $resCoro
+                                lassign [$resCoro] data state
+                                $sandbox eval [list set $varName $data]
+                            } } $sandbox $name $call $sessionNs {*}$args]
+                    if {$resCoro eq {}} {
+                        return
+                    } else {
+                        $sandbox eval vwait $name
+                        return [$sandbox eval set $name]
+                    }
+                } } $sandbox $call $sessionNs
     }
     set protectCmds [$sandbox eval info commands]
     # Restore saved procs
@@ -284,8 +313,11 @@ proc registerCallbacks { sessionNs } {
 proc asyncGets {chan {callback ""}} {
     if {[gets $chan line] >= 0} {
         if {[string trim $line] ne ""} {
-            catch {uplevel #0 $line} out
-            puts $out
+            if {[catch {uplevel #0 $line} out options]} {
+                puts "$out\n$options"
+            } else {
+                puts $out
+            }
         }
     }
     if [eof $chan] { 
