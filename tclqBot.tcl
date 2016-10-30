@@ -210,7 +210,7 @@ Current trigger: `$trigger`
         {^([^ ]+)(?: (.*))?$} {
             lassign $match - command args
             set script $command
-            if {[llength $args] > 0} {
+            if {$args ne {}} {
                 append script " $args"
             }
             set messageId [dict get $data id]
@@ -267,7 +267,11 @@ proc guildCreate { sessionNs event data } {
 
     foreach call [list getChannel modifyChannel deleteChannel getMessages \
             getMessage sendMessage uploadFile editMessage deleteMessage \
-            bulkDeleteMessages editChannelPermissions createDM sendDM] {
+            bulkDeleteMessages editChannelPermissions deleteChannelPermission \
+            getChannelInvites createChannelInvite triggerTyping \
+            getPinnedMessages pinMessage unpinMessage getGuild modifyGuild \
+            getChannels createChannel changeChannelPositions getMember \
+            getMembers createDM sendDM] {
         $sandbox alias ${call} apply { { sandbox call sessionNs args } {
                     set coro ::${call}Coro
                     set name ::${call}Result
@@ -290,9 +294,13 @@ proc guildCreate { sessionNs event data } {
                     }
                 } } $sandbox $call $sessionNs
     }
-    $sandbox alias hasPerms discord::HasPermissions
-    $sandbox alias getPerms discord::GetPermissions
-    $sandbox alias setPerms discord::SetPermissions
+    $sandbox alias getPerms discord GetPermissions
+    $sandbox alias setPerms discord SetPermissions
+    $sandbox alias hasPerms discord hasPermissions
+    $sandbox alias permDesc discord getPermissionDescription
+    $sandbox alias snowflakeTime apply { { snowflake } {
+                return [getSnowflakeUnixTime $snowflake $::discord::Epoch]
+            } }
     set protectCmds [$sandbox eval info commands]
     # Restore saved procs
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
