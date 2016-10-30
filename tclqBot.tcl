@@ -267,7 +267,7 @@ proc guildCreate { sessionNs event data } {
 
     foreach call [list getChannel modifyChannel deleteChannel getMessages \
             getMessage sendMessage uploadFile editMessage deleteMessage \
-            bulkDeleteMessages] {
+            bulkDeleteMessages editChannelPermissions createDM sendDM] {
         $sandbox alias ${call} apply { { sandbox call sessionNs args } {
                     set coro ::${call}Coro
                     set name ::${call}Result
@@ -290,6 +290,9 @@ proc guildCreate { sessionNs event data } {
                     }
                 } } $sandbox $call $sessionNs
     }
+    $sandbox alias hasPerms discord::HasPermissions
+    $sandbox alias getPerms discord::GetPermissions
+    $sandbox alias setPerms discord::SetPermissions
     set protectCmds [$sandbox eval info commands]
     # Restore saved procs
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
