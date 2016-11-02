@@ -264,14 +264,19 @@ proc guildCreate { sessionNs event data } {
         dict set ::guildBotTriggers $guildId $::defaultTrigger
         infoDb eval {INSERT INTO bot VALUES($guildId, $::defaultTrigger)}
     }
-
     foreach call [list getChannel modifyChannel deleteChannel getMessages \
             getMessage sendMessage uploadFile editMessage deleteMessage \
             bulkDeleteMessages editChannelPermissions deleteChannelPermission \
             getChannelInvites createChannelInvite triggerTyping \
             getPinnedMessages pinMessage unpinMessage getGuild modifyGuild \
             getChannels createChannel changeChannelPositions getMember \
-            getMembers createDM sendDM] {
+            getMembers addMember modifyMember kickMember getBans ban unban \
+            getRoles createRole batchModifyRoles modifyRole deleteRole \
+            getPruneCount prune getGuildVoiceRegions getGuildInvites \
+            getIntegrations createIntegration modifyIntegration \
+            deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed \
+            getCurrentUser getUser modifyCurrentUser getGuilds leaveGuild \
+            getDMs createDM getConnections getVoiceRegions sendDM closeDM] {
         $sandbox alias ${call} apply { { sandbox call sessionNs args } {
                     set coro ::${call}Coro
                     set name ::${call}Result
