@@ -297,7 +297,9 @@ proc guildCreate { sessionNs event data } {
                         return
                     } else {
                         $sandbox eval vwait $name
-                        return [$sandbox eval set $name]
+                        set res [$sandbox eval set $name]
+                        $sandbox eval unset $name
+                        return $res
                     }
                 } } $sandbox $call $sessionNs {*}$args
     }
