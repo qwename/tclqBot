@@ -31,14 +31,13 @@ ${log}::setlevel debug
 # Open sqlite3 database
 sqlite3 infoDb "${scriptDir}/info.sqlite3"
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    procs(guildId TEXT, name BLOB, args BLOB, body BLOB,
-            UNIQUE(guildId, name) ON CONFLICT REPLACE)
-}
+            procs(guildId TEXT, name BLOB, args BLOB, body BLOB,
+                  UNIQUE(guildId, name) ON CONFLICT REPLACE)
+        }
 infoDb eval { CREATE TABLE IF NOT EXISTS
-    bot(guildId TEXT PRIMARY KEY, trigger BLOB)
-}
+            bot(guildId TEXT PRIMARY KEY, trigger BLOB)
+        }
 infoDb eval { CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId) }
-
 
 proc logDebug { text } {
     variable debugFile
@@ -92,7 +91,8 @@ proc setupSandboxEval { sandbox sessionNs data } {
             break
         }
     }
-    foreach varName [list data channel_id guild_id guild channel] {
+    set user_id [dict get $data author id]
+    foreach varName [list data channel_id guild_id guild channel user_id] {
         $sandbox eval [list set ::$varName [set $varName]]
     }
     foreach varName [list author content] {
@@ -137,18 +137,18 @@ proc getTrigger { guildId } {
 
 proc setTrigger { guildId pattern } {
     dict set ::guildBotTriggers $guildId $pattern
-    infoDb eval {INSERT OR REPLACE INTO bot
-            VALUES($guildId, $pattern)
-    }
+    infoDb eval {INSERT OR REPLACE INTO bot VALUES($guildId, $pattern)}
 }
 
+#  Non-DM channels only
 proc handlePlease { sessionNs data text } {
     variable log
     set channelId [dict get $data channel_id]
+    set guildId [dict get [set ${sessionNs}::channels] $channelId]
+    set userId [dict get $data author id]
     switch -regexp -matchvar match -- $text {
         {^pmhelp$} -
         {^help$} {
-            set guildId [dict get [set ${sessionNs}::channels] $channelId]
             set trigger [getTrigger $guildId]
             set helpMsg "
 **tclqBot**, made with discord.tcl $discord::version.
@@ -173,7 +173,6 @@ Current trigger: `$trigger`
             if {$cmd eq "help"} {
                 discord sendMessage $sessionNs $channelId $helpMsg
             } elseif {$cmd eq "pmhelp"} {
-                set userId [dict get [dict get $data author] id]
                 if {[catch {discord sendDM $sessionNs $userId $helpMsg}]} {
                     set resCoro [discord createDM $sessionNs $userId 1]
                     if {$resCoro eq {}} {
@@ -191,8 +190,7 @@ Current trigger: `$trigger`
         {^change_trigger(?: ```(.*)```)?$} -
         {^change_trigger(?: `(.*)`)?$} -
         {^change_trigger(?: (.*))?$} {
-            set pattern [lindex $match 1]
-            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+            lassign $match - pattern
             set msg ""
             if {$pattern ne {}} {
                 setTrigger $guildId $pattern
@@ -277,6 +275,10 @@ proc guildCreate { sessionNs event data } {
             deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed \
             getCurrentUser getUser modifyCurrentUser getGuilds leaveGuild \
             getDMs createDM getConnections getVoiceRegions sendDM closeDM] {
+        set args [list]
+        if {$call in $::guildSpecificCalls} {
+            lappend args $guildId
+        }
         $sandbox alias ${call} apply { { sandbox call sessionNs args } {
                     set coro ::${call}Coro
                     set name ::${call}Result
@@ -297,10 +299,10 @@ proc guildCreate { sessionNs event data } {
                         $sandbox eval vwait $name
                         return [$sandbox eval set $name]
                     }
-                } } $sandbox $call $sessionNs
+                } } $sandbox $call $sessionNs {*}$args
     }
-    $sandbox alias getPerms discord GetPermissions
-    $sandbox alias setPerms discord SetPermissions
+    $sandbox alias getPermList discord getPermList
+    $sandbox alias setPerms discord setPermissions
     $sandbox alias hasPerms discord hasPermissions
     $sandbox alias permDesc discord getPermissionDescription
     $sandbox alias snowflakeTime apply { { snowflake } {
@@ -309,14 +311,13 @@ proc guildCreate { sessionNs event data } {
     set protectCmds [$sandbox eval info commands]
     # Restore saved procs
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
-        $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
-    }
+                $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
+            }
     foreach cmd [list proc rename] {
         $sandbox hide $cmd
     }
     $sandbox alias proc procSave $sandbox $guildId $protectCmds
     $sandbox alias rename renameSave $sandbox $guildId $protectCmds
-
 }
 
 proc registerCallbacks { sessionNs } {
@@ -366,6 +367,13 @@ fileevent stdin readable [list asyncGets stdin]
 set defaultTrigger {^% Please (.*)$}
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
+set guildSpecificCalls {getGuild modifyGuild getChannels createChannel
+        changeChannelPosition getMember getMembers addMember modifyMember
+        kickMember getBans ban unban getRoles createRole batchModifyRoles
+        modifyRole deleteRole getPruneCount prune getGuildVoiceRegions
+        getGuildInvites getIntegrations createIntegration modifyIntegration
+        deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed
+        leaveGuildA}
 
 set startTime [clock seconds]
 set session [discord connect $token ::registerCallbacks]
