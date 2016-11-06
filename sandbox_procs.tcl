@@ -112,3 +112,33 @@ proc delMemberPermissions { sessionNs guildId userId permList } {
     }
     return -code error "No such member in guild."
 }
+
+proc getGuildCallbacks { guildId } {
+    if {[catch {dict get $::guildCallbacks $guildId} callbacks]} {
+        return
+    } else {
+        return $callbacks
+    }
+}
+
+proc addGuildCallback { guildId event callback } {
+    dict set ::guildCallbacks $guildId $event $callback
+    set callbacks [dict get $::guildCallbacks $guildId]
+    infoDb eval {INSERT OR REPLACE INTO callbacks
+                VALUES($guildId, $callbacks)
+            }
+    return $callbacks
+}
+
+proc delGuildCallback { guildId event callback } {
+    if {![dict exists $::guildCallbacks $guildId]} {
+        return
+    }
+    if {![catch {dict unset ::guildCallbacks $guildId $event}]} {
+        set callbacks [dict get $::guildCallbacks $guildId]
+        infoDb eval {INSERT OR REPLACE INTO callbacks
+                    VALUES($guildId, $callbacks)
+                }
+    }
+    return $callbacks
+}

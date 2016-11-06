@@ -43,6 +43,9 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 infoDb eval { CREATE TABLE IF NOT EXISTS
             perms(guildId TEXT, userId TEXT PRIMARY KEY, allow BLOB)
         }
+infoDb eval { CREATE TABLE IF NOT EXISTS
+            callbacks(guildId TEXT PRIMARY KEY, dict BLOB)
+        }
 infoDb eval { CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId) }
 
 proc logDebug { text } {
@@ -228,9 +231,6 @@ Current trigger: `$trigger`
 }
 
 proc handleGuildCallbacks { sessionNs event data } {
-    if {[catch {dict get $::guildCallbackMapping $event} callback]} {
-        return
-    }
     switch $event {
         MESSAGE_CREATE {
             set channelId [dict get $data channel_id]
@@ -244,20 +244,12 @@ proc handleGuildCallbacks { sessionNs event data } {
             return
         }
     }
-    if {[catch {dict get $::guildCallbacks $guildId} callbacks]} {
+    if {[catch {dict get $::guildCallbacks $guildId $event} callback]
+            || [catch {dict get $::guildInterps $guildId} sandbox]} {
         return
     }
-    if {$callback ni $callbacks} {
-        return
-    }
-    if {[catch {dict get $::guildInterps $guildId} sandbox]} {
-        return
-    }
-    $sandbox limit time -seconds {}
-    if {[llength [$sandbox eval info commands $callback]] > 0} {
-        $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-        catch {$sandbox eval [list $callback $data]}
-    }
+    $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+    catch {$sandbox eval [list {*}$callback $data]}
 }
 
 proc messageCreate { sessionNs event data } {
@@ -335,8 +327,8 @@ proc guildCreate { sessionNs event data } {
                 } } $sandbox $call $sessionNs {*}$args
     }
     $sandbox alias getPermList discord getPermList
-    $sandbox alias setPerms discord setPermissions
-    $sandbox alias hasPerms discord hasPermissions
+    $sandbox alias addPermissions discord setPermissions
+    $sandbox alias hasPermissions discord hasPermissions
     $sandbox alias permDesc discord getPermissionDescription
     $sandbox alias snowflakeTime apply { { snowflake } {
                 return [getSnowflakeUnixTime $snowflake $::discord::Epoch]
@@ -345,6 +337,9 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
     $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
     $sandbox alias delPerms delMemberPermissions $sessionNs $guildId
+    $sandbox alias getCallbacks getGuildCallbacks $guildId
+    $sandbox alias addCallback addGuildCallback $guildId
+    $sandbox alias delCallback delGuildCallback $guildId
     set protectCmds [$sandbox eval info commands]
     set currentVars [$sandbox eval info vars]
     infoDb eval {SELECT * FROM vars WHERE guildId IS $guildId} vars {
@@ -366,13 +361,11 @@ proc guildCreate { sessionNs event data } {
     }
     $sandbox alias proc procSave $sandbox $guildId $protectCmds
     $sandbox alias rename renameSave $sandbox $guildId $protectCmds
-    foreach callback [dict values $::guildCallbackMapping] {
-        if {[llength [$sandbox eval [list info commands $callback]]] == 0} {
-            $sandbox eval [list proc $callback { data } { }]
-        }
-        dict lappend ::guildCallbacks $guildId $callback
-    }
-
+    infoDb eval {SELECT * FROM callbacks WHERE guildId IS $guildId} callbacks {
+                dict for {event callback} $callbacks(dict) {
+                    dict set ::guildCallbacks $guildId $event $callback
+                }
+            }
     infoDb eval {SELECT * FROM perms WHERE guildId IS $guildId} perm {
                 dict set ::guildPermissions $perm(guildId) $perm(userId) \
                         $perm(allow)
@@ -460,11 +453,6 @@ fileevent stdin readable [list asyncGets stdin]
 # through variables which can exceed the Discord limit.
 set maxSavedProcsSize [expr {2**20}]
 set defaultTrigger {^% Please (.*)$}
-set guildCallbackMapping {
-            MESSAGE_CREATE onMsg
-            GUILD_MEMBER_ADD onMemberJoin
-            GUILD_MEMBER_REMOVE onMemberLeave
-        }
 
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
