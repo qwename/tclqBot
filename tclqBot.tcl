@@ -377,6 +377,41 @@ set guildSpecificCalls {getGuild modifyGuild getChannels createChannel
         deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed
         leaveGuildA}
 
+namespace eval TraceExeTime {
+    variable EnterTimes [dict create]
+    variable Times [dict create]
+}
+
+proc TraceExeTime::Enter { cmdStr op } {
+    variable EnterTimes
+    lassign $cmdStr cmd
+    dict set EnterTimes $cmd [clock microseconds]
+}
+
+proc TraceExeTime::Leave { cmdStr code result op } {
+    set leaveTime [clock microseconds]
+    variable EnterTimes
+    variable Times
+    lassign $cmdStr cmd
+    set enterTime [dict get $EnterTimes $cmd]
+    set duration [expr {$leaveTime - $enterTime}]
+    dict lappend Times $cmd $duration
+    puts "Last execution time for '$cmd': $duration us"
+    Average $cmd
+}
+
+proc TraceExeTime::Average { command } {
+    variable Times
+    set allTimes [dict get $Times $command]
+    set avgTime [expr {[::tcl::mathop::+ {*}$allTimes] / [llength $allTimes]}]
+    puts "Average time from enter to leave for '$command': $avgTime us"
+}
+
+#trace add execution discord::gateway::Handler enter TraceExeTime::Enter
+#trace add execution discord::gateway::Handler leave TraceExeTime::Leave
+#trace add execution discord::ManageEvents enter TraceExeTime::Enter
+#trace add execution discord::ManageEvents leave TraceExeTime::Leave
+
 set startTime [clock seconds]
 set session [discord connect $token ::registerCallbacks]
 
