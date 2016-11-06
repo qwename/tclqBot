@@ -342,8 +342,8 @@ proc guildCreate { sessionNs event data } {
     setMemberPermissions $sessionNs $guildId [dict get $data owner_id] \
             [$sandbox eval info commands]
     # Temporary
-    setMemberPermissions $sessionNs $guildId $::ownerId \
-            [$sandbox eval info commands]
+    #setMemberPermissions $sessionNs $guildId $::ownerId \
+    #        [$sandbox eval info commands]
 }
 
 proc registerCallbacks { sessionNs } {
