@@ -63,3 +63,21 @@ proc coin { {count 1} } {
     set tailsPercent [expr {double($tails)/$count * 100.0}]
     say "$count flips\n$heads heads (${headsPercent}%)\n$tails tails (${tailsPercent}%)"
 }
+
+proc onMemberJoin { data } {
+    # The default channel has the same ID as the server
+    set guildId [dict get $data guild_id]
+    foreach field [list username discriminator] {
+        set $field [dict get $data user $field]
+    }
+    sendMessage $guildId "**$username#$discriminator** has joined the server."
+}
+
+proc onMemberLeave { data } {
+    # The default channel has the same ID as the server
+    set guildId [dict get $data guild_id]
+    foreach field [list username discriminator] {
+        set $field [dict get $data user $field]
+    }
+    sendMessage $guildId "**$username#$discriminator** has left the server."
+}
