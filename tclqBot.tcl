@@ -230,28 +230,6 @@ Current trigger: `$trigger`
     }
 }
 
-proc handleGuildCallbacks { sessionNs event data } {
-    switch $event {
-        MESSAGE_CREATE {
-            set channelId [dict get $data channel_id]
-            set guildId [dict get [set ${sessionNs}::channels] $channelId]
-        }
-        GUILD_MEMBER_ADD -
-        GUILD_MEMBER_REMOVE {
-            set guildId [dict get $data guild_id]
-        }
-        default {
-            return
-        }
-    }
-    if {[catch {dict get $::guildCallbacks $guildId $event} callback]
-            || [catch {dict get $::guildInterps $guildId} sandbox]} {
-        return
-    }
-    $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-    catch {$sandbox eval [list {*}$callback $data]}
-}
-
 proc messageCreate { sessionNs event data } {
     set content [dict get $data content]
     set channelId [dict get $data channel_id]
@@ -338,8 +316,8 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
     $sandbox alias delPerms delMemberPermissions $sessionNs $guildId
     $sandbox alias getCallbacks getGuildCallbacks $guildId
-    $sandbox alias addCallback addGuildCallback $guildId
-    $sandbox alias delCallback delGuildCallback $guildId
+    $sandbox alias addCallback addGuildCallback $sessionNs $guildId
+    $sandbox alias delCallback delGuildCallback $sessionNs $guildId
     set protectCmds [$sandbox eval info commands]
     set currentVars [$sandbox eval info vars]
     infoDb eval {SELECT * FROM vars WHERE guildId IS $guildId} vars {
@@ -364,6 +342,7 @@ proc guildCreate { sessionNs event data } {
     infoDb eval {SELECT * FROM callbacks WHERE guildId IS $guildId} callbacks {
                 dict for {event callback} $callbacks(dict) {
                     dict set ::guildCallbacks $guildId $event $callback
+                    discord setCallback $sessionNs $event ::mainCallbackHandler
                 }
             }
     infoDb eval {SELECT * FROM perms WHERE guildId IS $guildId} perm {
@@ -381,13 +360,11 @@ proc ::mainCallbackHandler { sessionNs event data } {
     switch $event {
         GUILD_CREATE {
             ::guildCreate $sessionNs $event $data
+            return
         }
         MESSAGE_CREATE {
             set id [dict get $data author id]
             if {$id eq [dict get [set ${sessionNs}::self] id]} {
-                return
-            }
-            if {[dict exists $data bot] && [dict get $data bot] eq "true"} {
                 return
             }
             if {![catch {dict get [set ${sessionNs}::users] $id} user]} {
@@ -396,18 +373,41 @@ proc ::mainCallbackHandler { sessionNs event data } {
                 }
             }
             ::messageCreate $sessionNs $event $data
+            set channelId [dict get $data channel_id]
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+        }
+        MESSAGE_UPDATE -
+        MESSAGE_DELETE -
+        MESSAGE_DELETE_BULK -
+        TYPING_START {
+            set channelId [dict get $data channel_id]
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+        }
+        READY -
+        RESUMED -
+        USER_SETTINGS_UPDATE -
+        USER_UPDATE {
+            return
+        }
+        GUILD_UPDATE -
+        GUILD_DELETE {
+            set guildId [dict get $data id]
         }
         default {
+            set guildId [dict get $data guild_id]
         }
     }
-    handleGuildCallbacks $sessionNs $event $data
+    if {[catch {dict get $::guildCallbacks $guildId $event} callback]
+            || [catch {dict get $::guildInterps $guildId} sandbox]} {
+        return
+    }
+    $sandbox limit time -seconds [expr {[clock seconds] + 1}]
+    catch {$sandbox eval [list {*}$callback $data]}
 }
 
 proc registerCallbacks { sessionNs } {
     discord setCallback $sessionNs GUILD_CREATE ::mainCallbackHandler
     discord setCallback $sessionNs MESSAGE_CREATE ::mainCallbackHandler
-    discord setCallback $sessionNs GUILD_MEMBER_ADD ::mainCallbackHandler
-    discord setCallback $sessionNs GUILD_MEMBER_REMOVE ::mainCallbackHandler
 }
 
 # For console stdin eval
