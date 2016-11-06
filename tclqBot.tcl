@@ -35,6 +35,9 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
                   UNIQUE(guildId, name) ON CONFLICT REPLACE)
         }
 infoDb eval { CREATE TABLE IF NOT EXISTS
+            vars(guildId TEXT PRIMARY KEY, list BLOB)
+        }
+infoDb eval { CREATE TABLE IF NOT EXISTS
             bot(guildId TEXT PRIMARY KEY, trigger BLOB)
         }
 infoDb eval { CREATE TABLE IF NOT EXISTS
@@ -204,7 +207,7 @@ Current trigger: `$trigger`
             }
             discord sendMessage $sessionNs $channelId $msg
         }
-        {^```([^ ]+)(?: (.*))?```$} -
+        {^```\n*([^ ]+)(?: (.*))?```$} -
         {^`([^ ]+)(?: (.*))?`$} -
         {^([^ ]+)(?: ```(.*)```)?$} -
         {^([^ ]+)(?: `(.*)`)?$} -
@@ -303,9 +306,9 @@ proc guildCreate { sessionNs event data } {
                     if {$resCoro eq {}} {
                         return
                     } else {
-                        $sandbox eval vwait $name
-                        set res [$sandbox eval set $name]
-                        $sandbox eval unset $name
+                        $sandbox eval [list vwait $name]
+                        set res [$sandbox eval [list set $name]]
+                        $sandbox eval [list unset $name]
                         return $res
                     }
                 } } $sandbox $call $sessionNs {*}$args
@@ -321,7 +324,15 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
     $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
     $sandbox alias delPerms delMemberPermissions $sessionNs $guildId
-    set protectCmds [$sandbox eval info commands]
+    set protectCmds [$sandbox eval [list info commands]]
+    set currentVars [$sandbox eval [list info vars]]
+    infoDb eval {SELECT * FROM vars WHERE guildId IS $guildId} vars {
+                dict for {name value} $vars(list) {
+                    if {$name ni $currentVars} {
+                        $sandbox eval [list set $name $value]
+                    }
+                }
+            }
     set totalProcsSize 0
     # Restore saved procs
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
@@ -340,10 +351,10 @@ proc guildCreate { sessionNs event data } {
                         $perm(allow)
             }
     setMemberPermissions $sessionNs $guildId [dict get $data owner_id] \
-            [$sandbox eval info commands]
+            [$sandbox eval [list info commands]]
     # Temporary
-    #setMemberPermissions $sessionNs $guildId $::ownerId \
-    #        [$sandbox eval info commands]
+    setMemberPermissions $sessionNs $guildId $::ownerId \
+            [$sandbox eval [list info commands]]
 }
 
 proc registerCallbacks { sessionNs } {
@@ -449,6 +460,24 @@ vwait forever
 if {[catch {discord disconnect $session} res]} {
     puts stderr $res
 }
+
+dict for {guildId sandbox} $guildInterps {
+    set vars [dict create]
+    $sandbox limit time -seconds {}
+    foreach var [$sandbox eval [list info vars]] {
+        if {[llength [array get $var]] > 0} {
+            foreach {key value} [array get $var] {
+                dict set vars "${var}($key)" $value
+            }
+        } else {
+            dict set vars $var [$sandbox eval [list set $var]]
+        }
+    }
+    infoDb eval {INSERT OR REPLACE INTO vars
+                VALUES($guildId, $vars)
+            }
+}
+
 close $debugLog
 ${log}::delete
 infoDb close
