@@ -190,25 +190,11 @@ Current trigger: `$trigger`
                     yield $resCoro
                     set response [$resCoro]
                     set data [lindex $response 0]
-                    if {$data ne {} && [dict $data exists recipients]} {
+                    if {$data ne {} && [dict exists $data recipients]} {
                         discord createDM $sessionNs $userId $helpMsg
                     }
                 }
             }
-        }
-        {^change_trigger(?: ```(.*)```)?$} -
-        {^change_trigger(?: `(.*)`)?$} -
-        {^change_trigger(?: (.*))?$} {
-            lassign $match - pattern
-            set msg ""
-            if {$pattern ne {}} {
-                setTrigger $guildId $pattern
-                set msg "Trigger changed to ```$pattern```"
-            } else {
-                set trigger [getTrigger $guildId]
-                set msg "Current trigger: ```$trigger```"
-            }
-            discord sendMessage $sessionNs $channelId $msg
         }
         {^```\n*([^ ]+)(?: (.*))?```$} -
         {^`([^ ]+)(?: (.*))?`$} -
@@ -219,6 +205,20 @@ Current trigger: `$trigger`
             if {[catch {dict get $::guildPermissions $guildId $userId} \
                     permList] || $command ni $permList} {
                 return
+            }
+            switch $command {
+                change_trigger {
+                    set msg ""
+                    if {$args ne {}} {
+                        setTrigger $guildId $args
+                        set msg "Trigger changed to ```$args```"
+                    } else {
+                        set trigger [getTrigger $guildId]
+                        set msg "Current trigger: ```$trigger```"
+                    }
+                    discord sendMessage $sessionNs $channelId $msg
+                    return
+                }
             }
             set script $command
             if {$args ne {}} {
