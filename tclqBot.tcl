@@ -236,7 +236,8 @@ proc handleGuildCallbacks { sessionNs event data } {
             set channelId [dict get $data channel_id]
             set guildId [dict get [set ${sessionNs}::channels] $channelId]
         }
-        GUILD_MEMBER_ADD {
+        GUILD_MEMBER_ADD -
+        GUILD_MEMBER_REMOVE {
             set guildId [dict get $data guild_id]
         }
         default {
@@ -413,6 +414,7 @@ proc registerCallbacks { sessionNs } {
     discord setCallback $sessionNs GUILD_CREATE ::mainCallbackHandler
     discord setCallback $sessionNs MESSAGE_CREATE ::mainCallbackHandler
     discord setCallback $sessionNs GUILD_MEMBER_ADD ::mainCallbackHandler
+    discord setCallback $sessionNs GUILD_MEMBER_REMOVE ::mainCallbackHandler
 }
 
 # For console stdin eval
@@ -461,6 +463,7 @@ set defaultTrigger {^% Please (.*)$}
 set guildCallbackMapping {
             MESSAGE_CREATE onMsg
             GUILD_MEMBER_ADD onMemberJoin
+            GUILD_MEMBER_REMOVE onMemberLeave
         }
 
 set guildBotTriggers [dict create]
