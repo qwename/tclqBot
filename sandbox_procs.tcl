@@ -38,6 +38,10 @@ proc renameSave { sandbox guildId protectCmds oldName newName } {
 }
 
 proc setMemberPermissions { sessionNs guildId userId permList } {
+    lassign [discord getMessageFormat $userId] type id
+    if {$type in [list user nickname]} {
+        set userId $id
+    }
     foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
         if {[dict get $member user id] eq $userId} {
             dict set ::guildPermissions $guildId $userId $permList
@@ -51,6 +55,10 @@ proc setMemberPermissions { sessionNs guildId userId permList } {
 }
 
 proc getMemberPermissions { sessionNs guildId userId } {
+    lassign [discord getMessageFormat $userId] type id
+    if {$type in [list user nickname]} {
+        set userId $id
+    }
     if {[catch {dict get $::guildPermissions $guildId $userId} permList]} {
         return {}
     } else {
@@ -59,6 +67,10 @@ proc getMemberPermissions { sessionNs guildId userId } {
 }
 
 proc addMemberPermissions { sessionNs guildId userId permList } {
+    lassign [discord getMessageFormat $userId] type id
+    if {$type in [list user nickname]} {
+        set userId $id
+    }
     foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
         if {[dict get $member user id] eq $userId} {
             if {[catch {dict get $::guildPermissions $guildId $userId} \
@@ -77,6 +89,10 @@ proc addMemberPermissions { sessionNs guildId userId permList } {
 }
 
 proc delMemberPermissions { sessionNs guildId userId permList } {
+    lassign [discord getMessageFormat $userId] type id
+    if {$type in [list user nickname]} {
+        set userId $id
+    }
     foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
         if {[dict get $member user id] eq $userId} {
             if {[catch {dict get $::guildPermissions $guildId $userId} \
