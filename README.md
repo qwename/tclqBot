@@ -7,10 +7,14 @@ Find tclqBot on [Discord](https://discord.gg/rMyNmUq).
 ### Status
 
 - Safe interpreter for every guild ID to *eval* scripts.
-- Save procs from each guild ID in a local sqlite3 database.
+- Save procs, vars from each guild ID in a local sqlite3 database.
+- Permissions in the form of list of commands allowed to execute.
 
 ### TODO
 
-- Individual safe interps within sandbox interp for each guild.
-- Restrict built-in commands to bot owner and other specified users.
+- ~~Individual safe interps within sandbox interp for each guild.~~
+- ~~Restrict built-in commands to bot owner and other specified users.~~
 - Use *trace* command for easier callbacks.
+- Threads or other methods to avoid blocking from sandbox.
+- Modifiable callback in sandbox for certain Gateway events, e.g. Guild Member
+  Create
