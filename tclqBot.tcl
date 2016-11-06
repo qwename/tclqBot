@@ -319,6 +319,8 @@ proc guildCreate { sessionNs event data } {
             } }
     $sandbox alias setPerms setMemberPermissions $sessionNs $guildId
     $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
+    $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
+    $sandbox alias delPerms delMemberPermissions $sessionNs $guildId
     set protectCmds [$sandbox eval info commands]
     set totalProcsSize 0
     # Restore saved procs

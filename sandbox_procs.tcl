@@ -44,7 +44,7 @@ proc setMemberPermissions { sessionNs guildId userId permList } {
             infoDb eval {INSERT OR REPLACE INTO perms
                         VALUES($guildId, $userId, $permList)
                     }
-            return
+            return $permList
         }
     }
     return -code error "No such member in guild."
@@ -56,4 +56,43 @@ proc getMemberPermissions { sessionNs guildId userId } {
     } else {
         return $permList
     }
+}
+
+proc addMemberPermissions { sessionNs guildId userId permList } {
+    foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
+        if {[dict get $member user id] eq $userId} {
+            if {[catch {dict get $::guildPermissions $guildId $userId} \
+                    currentPermList]} {
+                set currentPermList [list]
+            }
+            lappend currentPermList {*}$permList
+            dict set ::guildPermissions $guildId $userId $currentPermList
+            infoDb eval {INSERT OR REPLACE INTO perms
+                        VALUES($guildId, $userId, $currentPermList)
+                    }
+            return $currentPermList
+        }
+    }
+    return -code error "No such member in guild."
+}
+
+proc delMemberPermissions { sessionNs guildId userId permList } {
+    foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
+        if {[dict get $member user id] eq $userId} {
+            if {[catch {dict get $::guildPermissions $guildId $userId} \
+                    currentPermList]} {
+                set currentPermList [list]
+            }
+            foreach perm $permList {
+                set currentPermList \
+                        [lsearch -all -inline -not $currentPermList $perm]
+            }
+            dict set ::guildPermissions $guildId $userId $currentPermList
+            infoDb eval {INSERT OR REPLACE INTO perms
+                        VALUES($guildId, $userId, $currentPermList)
+                    }
+            return $currentPermList
+        }
+    }
+    return -code error "No such member in guild."
 }
