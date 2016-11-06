@@ -114,12 +114,12 @@ proc sandboxEval { sessionNs data script } {
     set channelId [dict get $data channel_id]
     set guildId [dict get [set ${sessionNs}::channels] $channelId]
     set sandbox [dict get $::guildInterps $guildId]
-    $sandbox limit time -seconds {}
     setupSandboxEval $sandbox $sessionNs $data
     $sandbox limit time -seconds [expr {[clock seconds] + 2}]
     catch {
         $sandbox eval [list uplevel #0 $script]
     } res
+    $sandbox limit time -seconds {}
     if {![regexp "^\n*$" $res]} {
         set resCoro [discord sendMessage $sessionNs $channelId $res 1]
         if {$resCoro eq {}} {
@@ -311,6 +311,7 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias snowflakeTime apply { { snowflake } {
                 return [getSnowflakeUnixTime $snowflake $::discord::Epoch]
             } }
+    $sandbox alias getMsgFormat discord getMessageFormat
     $sandbox alias setPerms setMemberPermissions $sessionNs $guildId
     $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
     $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
@@ -403,6 +404,7 @@ proc ::mainCallbackHandler { sessionNs event data } {
     }
     $sandbox limit time -seconds [expr {[clock seconds] + 1}]
     catch {$sandbox eval [list {*}$callback $data]}
+    $sandbox limit time -seconds {}
 }
 
 proc registerCallbacks { sessionNs } {
@@ -515,7 +517,6 @@ if {[catch {discord disconnect $session} res]} {
 
 dict for {guildId sandbox} $guildInterps {
     set vars [dict create]
-    $sandbox limit time -seconds {}
     foreach var [$sandbox eval info vars] {
         if {[llength [array get $var]] > 0} {
             foreach {key value} [array get $var] {
