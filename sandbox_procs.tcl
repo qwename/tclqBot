@@ -122,7 +122,7 @@ proc getGuildCallbacks { guildId } {
 }
 
 proc addGuildCallback { sessionNs guildId event callback } {
-    if {![discord setCallback $sessionNs $event ::mainCallbackhandler]} {
+    if {![discord setCallback $sessionNs $event ::mainCallbackHandler]} {
         return -code error "Unable to set callback for event: $event"
     }
     dict set ::guildCallbacks $guildId $event $callback
