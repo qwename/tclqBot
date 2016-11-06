@@ -36,3 +36,24 @@ proc renameSave { sandbox guildId protectCmds oldName newName } {
         return -code error $res
     }
 }
+
+proc setMemberPermissions { sessionNs guildId userId permList } {
+    foreach member [dict get [set ${sessionNs}::guilds] $guildId members] {
+        if {[dict get $member user id] eq $userId} {
+            dict set ::guildPermissions $guildId $userId $permList
+            infoDb eval {INSERT OR REPLACE INTO perms
+                        VALUES($guildId, $userId, $permList)
+                    }
+            return
+        }
+    }
+    return -code error "No such member in guild."
+}
+
+proc getMemberPermissions { sessionNs guildId userId } {
+    if {[catch {dict get $::guildPermissions $guildId $userId} permList]} {
+        return {}
+    } else {
+        return $permList
+    }
+}

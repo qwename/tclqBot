@@ -37,6 +37,9 @@ infoDb eval { CREATE TABLE IF NOT EXISTS
 infoDb eval { CREATE TABLE IF NOT EXISTS
             bot(guildId TEXT PRIMARY KEY, trigger BLOB)
         }
+infoDb eval { CREATE TABLE IF NOT EXISTS
+            perms(guildId TEXT, userId TEXT PRIMARY KEY, allow BLOB)
+        }
 infoDb eval { CREATE INDEX IF NOT EXISTS procsGuildIdIdx ON procs(guildId) }
 
 proc logDebug { text } {
@@ -207,6 +210,10 @@ Current trigger: `$trigger`
         {^([^ ]+)(?: `(.*)`)?$} -
         {^([^ ]+)(?: (.*))?$} {
             lassign $match - command args
+            if {[catch {dict get $::guildPermissions $guildId $userId} \
+                    permList] || $command ni $permList} {
+                return
+            }
             set script $command
             if {$args ne {}} {
                 append script " $args"
@@ -310,6 +317,8 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias snowflakeTime apply { { snowflake } {
                 return [getSnowflakeUnixTime $snowflake $::discord::Epoch]
             } }
+    $sandbox alias setPerms setMemberPermissions $sessionNs $guildId
+    $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
     set protectCmds [$sandbox eval info commands]
     set totalProcsSize 0
     # Restore saved procs
@@ -323,6 +332,16 @@ proc guildCreate { sessionNs event data } {
     }
     $sandbox alias proc procSave $sandbox $guildId $protectCmds
     $sandbox alias rename renameSave $sandbox $guildId $protectCmds
+
+    infoDb eval {SELECT * FROM perms WHERE guildId IS $guildId} perm {
+                dict set ::guildPermissions $perm(guildId) $perm(userId) \
+                        $perm(allow)
+            }
+    setMemberPermissions $sessionNs $guildId [dict get $data owner_id] \
+            [$sandbox eval info commands]
+    # Temporary
+    setMemberPermissions $sessionNs $guildId $::ownerId \
+            [$sandbox eval info commands]
 }
 
 proc registerCallbacks { sessionNs } {
@@ -376,6 +395,7 @@ set defaultTrigger {^% Please (.*)$}
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
 set guildSavedProcsSize [dict create]
+set guildPermissions [dict create]
 set guildSpecificCalls {getGuild modifyGuild getChannels createChannel
         changeChannelPosition getMember getMembers addMember modifyMember
         kickMember getBans ban unban getRoles createRole batchModifyRoles
