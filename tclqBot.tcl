@@ -311,10 +311,13 @@ proc guildCreate { sessionNs event data } {
                 return [getSnowflakeUnixTime $snowflake $::discord::Epoch]
             } }
     set protectCmds [$sandbox eval info commands]
+    set totalProcs 0
     # Restore saved procs
     infoDb eval {SELECT * FROM procs WHERE guildId IS $guildId} proc {
                 $sandbox eval [list proc $proc(name) $proc(args) $proc(body)]
+                incr totalProcs
             }
+    dict set ::guildSavedProcs $guildId $totalProcs
     foreach cmd [list proc rename] {
         $sandbox hide $cmd
     }
@@ -366,9 +369,13 @@ flush stdout
 fconfigure stdin -blocking 0 -buffering line
 fileevent stdin readable [list asyncGets stdin]
 
+# Assume a maximum of 2000 characters per proc, this should result in at most
+# 1 MiB (2**20 bytes) per guild.
+set maxSavedProcs 512
 set defaultTrigger {^% Please (.*)$}
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
+set guildSavedProcs [dict create]
 set guildSpecificCalls {getGuild modifyGuild getChannels createChannel
         changeChannelPosition getMember getMembers addMember modifyMember
         kickMember getBans ban unban getRoles createRole batchModifyRoles
