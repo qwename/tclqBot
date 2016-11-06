@@ -256,23 +256,11 @@ proc handleGuildCallbacks { sessionNs event data } {
     $sandbox limit time -seconds {}
     if {[llength [$sandbox eval info commands $callback]] > 0} {
         $sandbox limit time -seconds [expr {[clock seconds] + 2}]
-        $sandbox eval [list $callback $data]
+        catch {$sandbox eval [list $callback $data]}
     }
 }
 
 proc messageCreate { sessionNs event data } {
-    set id [dict get $data author id]
-    if {$id eq [dict get [set ${sessionNs}::self] id]} {
-        return
-    }
-    if {[dict exists $data bot] && [dict get $data bot] eq "true"} {
-        return
-    }
-    if {![catch {dict get [set ${sessionNs}::users] $id} user]} {
-        if {[dict exists $user bot] && [dict get $user bot] eq "true"} {
-            return
-        }
-    }
     set content [dict get $data content]
     set channelId [dict get $data channel_id]
     if {$channelId in [dict keys [set ${sessionNs}::dmChannels]]} {
@@ -402,6 +390,18 @@ proc ::mainCallbackHandler { sessionNs event data } {
             ::guildCreate $sessionNs $event $data
         }
         MESSAGE_CREATE {
+            set id [dict get $data author id]
+            if {$id eq [dict get [set ${sessionNs}::self] id]} {
+                return
+            }
+            if {[dict exists $data bot] && [dict get $data bot] eq "true"} {
+                return
+            }
+            if {![catch {dict get [set ${sessionNs}::users] $id} user]} {
+                if {[dict exists $user bot] && [dict get $user bot] eq "true"} {
+                    return
+                }
+            }
             ::messageCreate $sessionNs $event $data
         }
         default {
