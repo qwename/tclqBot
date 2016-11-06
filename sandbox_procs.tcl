@@ -133,7 +133,7 @@ proc addGuildCallback { sessionNs guildId event callback } {
     return $callbacks
 }
 
-proc delGuildCallback { guildId event callback } {
+proc delGuildCallback { sessionNs guildId event } {
     if {![dict exists $::guildCallbacks $guildId]} {
         return
     }
