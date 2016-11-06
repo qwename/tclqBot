@@ -2,8 +2,13 @@ proc procSave { sandbox guildId protectCmds name args body } {
     if {[regexp "^:*(?:[join $protectCmds |])$" $name]} {
         return
     }
-    if {[dict get $::guildSavedProcs $guildId] >= $::maxSavedProcs} {
-        return -code error "Maximum number of procs reached: $::maxSavedProcs"
+    set currentSize [dict get $::guildSavedProcsSize $guildId]
+    set newProc(name) $name
+    set newProc(args) $args
+    set newProc(body) $body
+    set size [string length [array get newProc]]
+    if {[expr {$currentSize + $size > $::maxSavedProcsSize}]} {
+        return -code error "Max size for procs reached: $::maxSavedProcsSize"
     }
     if {![catch {$sandbox invokehidden -global proc $name $args $body} res]} {
         infoDb eval {INSERT OR REPLACE INTO procs
