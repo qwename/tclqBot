@@ -227,6 +227,38 @@ Current trigger: `$trigger`
     }
 }
 
+proc handleGuildCallbacks { sessionNs event data } {
+    if {[catch {dict get $::guildCallbackMapping $event} callback]} {
+        return
+    }
+    switch $event {
+        MESSAGE_CREATE {
+            set channelId [dict get $data channel_id]
+            set guildId [dict get [set ${sessionNs}::channels] $channelId]
+        }
+        GUILD_MEMBER_ADD {
+            set guildId [dict get $data guild_id]
+        }
+        default {
+            return
+        }
+    }
+    if {[catch {dict get $::guildCallbacks $guildId} callbacks]} {
+        return
+    }
+    if {$callback ni $callbacks} {
+        return
+    }
+    if {[catch {dict get $::guildInterps $guildId} sandbox]} {
+        return
+    }
+    $sandbox limit time -seconds {}
+    if {[llength [$sandbox eval info commands $callback]] > 0} {
+        $sandbox limit time -seconds [expr {[clock seconds] + 2}]
+        $sandbox eval [list $callback $data]
+    }
+}
+
 proc messageCreate { sessionNs event data } {
     set id [dict get $data author id]
     if {$id eq [dict get [set ${sessionNs}::self] id]} {
@@ -324,8 +356,8 @@ proc guildCreate { sessionNs event data } {
     $sandbox alias getPerms getMemberPermissions $sessionNs $guildId
     $sandbox alias addPerms addMemberPermissions $sessionNs $guildId
     $sandbox alias delPerms delMemberPermissions $sessionNs $guildId
-    set protectCmds [$sandbox eval [list info commands]]
-    set currentVars [$sandbox eval [list info vars]]
+    set protectCmds [$sandbox eval info commands]
+    set currentVars [$sandbox eval info vars]
     infoDb eval {SELECT * FROM vars WHERE guildId IS $guildId} vars {
                 dict for {name value} $vars(list) {
                     if {$name ni $currentVars} {
@@ -345,21 +377,42 @@ proc guildCreate { sessionNs event data } {
     }
     $sandbox alias proc procSave $sandbox $guildId $protectCmds
     $sandbox alias rename renameSave $sandbox $guildId $protectCmds
+    foreach callback [dict values $::guildCallbackMapping] {
+        if {[llength [$sandbox eval [list info commands $callback]]] == 0} {
+            $sandbox eval [list proc $callback { data } { }]
+        }
+        dict lappend ::guildCallbacks $guildId $callback
+    }
 
     infoDb eval {SELECT * FROM perms WHERE guildId IS $guildId} perm {
                 dict set ::guildPermissions $perm(guildId) $perm(userId) \
                         $perm(allow)
             }
     setMemberPermissions $sessionNs $guildId [dict get $data owner_id] \
-            [$sandbox eval [list info commands]]
+            [$sandbox eval info commands]
     # Temporary
     setMemberPermissions $sessionNs $guildId $::ownerId \
-            [$sandbox eval [list info commands]]
+            [$sandbox eval info commands]
+}
+
+proc ::mainCallbackHandler { sessionNs event data } {
+    switch $event {
+        GUILD_CREATE {
+            ::guildCreate $sessionNs $event $data
+        }
+        MESSAGE_CREATE {
+            ::messageCreate $sessionNs $event $data
+        }
+        default {
+        }
+    }
+    handleGuildCallbacks $sessionNs $event $data
 }
 
 proc registerCallbacks { sessionNs } {
-    discord setCallback $sessionNs GUILD_CREATE ::guildCreate
-    discord setCallback $sessionNs MESSAGE_CREATE ::messageCreate
+    discord setCallback $sessionNs GUILD_CREATE ::mainCallbackHandler
+    discord setCallback $sessionNs MESSAGE_CREATE ::mainCallbackHandler
+    discord setCallback $sessionNs GUILD_MEMBER_ADD ::mainCallbackHandler
 }
 
 # For console stdin eval
@@ -405,17 +458,25 @@ fileevent stdin readable [list asyncGets stdin]
 # through variables which can exceed the Discord limit.
 set maxSavedProcsSize [expr {2**20}]
 set defaultTrigger {^% Please (.*)$}
+set guildCallbackMapping {
+            MESSAGE_CREATE onMsg
+            GUILD_MEMBER_ADD onMemberJoin
+        }
+
 set guildBotTriggers [dict create]
 set guildInterps [dict create]
 set guildSavedProcsSize [dict create]
 set guildPermissions [dict create]
-set guildSpecificCalls {getGuild modifyGuild getChannels createChannel
-        changeChannelPosition getMember getMembers addMember modifyMember
-        kickMember getBans ban unban getRoles createRole batchModifyRoles
-        modifyRole deleteRole getPruneCount prune getGuildVoiceRegions
-        getGuildInvites getIntegrations createIntegration modifyIntegration
-        deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed
-        leaveGuildA}
+set guildCallbacks [dict create]
+set guildSpecificCalls {
+            getGuild modifyGuild getChannels createChannel
+            changeChannelPosition getMember getMembers addMember modifyMember
+            kickMember getBans ban unban getRoles createRole batchModifyRoles
+            modifyRole deleteRole getPruneCount prune getGuildVoiceRegions
+            getGuildInvites getIntegrations createIntegration modifyIntegration
+            deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed
+            leaveGuild
+        }
 
 namespace eval TraceExeTime {
     variable EnterTimes [dict create]
@@ -464,7 +525,7 @@ if {[catch {discord disconnect $session} res]} {
 dict for {guildId sandbox} $guildInterps {
     set vars [dict create]
     $sandbox limit time -seconds {}
-    foreach var [$sandbox eval [list info vars]] {
+    foreach var [$sandbox eval info vars] {
         if {[llength [array get $var]] > 0} {
             foreach {key value} [array get $var] {
                 dict set vars "${var}($key)" $value
