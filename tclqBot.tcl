@@ -275,7 +275,8 @@ proc guildCreate { sessionNs event data } {
             getIntegrations createIntegration modifyIntegration \
             deleteIntegration syncIntegration getGuildEmbed modifyGuildEmbed \
             getCurrentUser getUser modifyCurrentUser getGuilds leaveGuild \
-            getDMs createDM getConnections getVoiceRegions sendDM closeDM] {
+            getDMs createDM getConnections getVoiceRegions sendDM closeDM \
+            getAuditLog] {
         set args [list]
         if {$call in $::guildSpecificCalls} {
             lappend args $guildId
